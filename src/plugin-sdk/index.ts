@@ -384,3 +384,9 @@ export { probeQQ, type QQProbeResult } from "../qq/probe.js";
 export { monitorQQProvider, type QQMonitorOptions, type QQMonitorResult } from "../qq/monitor.js";
 export type { QQEvent, QQMessageEvent, QQInboundMessage, QQMessageSegment, QQChatType } from "../qq/types.js";
 export { qqOnboardingAdapter } from "../channels/plugins/onboarding/qq.js";
+export {
+  installNapCatQQ,
+  detectNapCatQQ,
+  startNapCatQQ,
+  type NapCatInstallResult,
+} from "../commands/napcat-install.js";

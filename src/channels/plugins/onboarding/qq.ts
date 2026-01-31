@@ -2,6 +2,11 @@ import type { OpenClawConfig } from "../../../config/config.js";
 import type { DmPolicy } from "../../../config/types.js";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "../../../routing/session-key.js";
 import {
+  detectNapCatQQ,
+  installNapCatQQ,
+  startNapCatQQ,
+} from "../../../commands/napcat-install.js";
+import {
   listQQAccountIds,
   resolveDefaultQQAccountId,
   resolveQQAccount,
@@ -11,6 +16,7 @@ import { formatCliCommand } from "../../../cli/command-format.js";
 import type { WizardPrompter } from "../../../wizard/prompts.js";
 import type { ChannelOnboardingAdapter, ChannelOnboardingDmPolicy } from "../onboarding-types.js";
 import { addWildcardAllowFrom, promptAccountId } from "./helpers.js";
+import type { RuntimeEnv } from "../../../runtime.js";
 
 const channel = "qq" as const;
 
@@ -181,6 +187,7 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
     accountOverrides,
     shouldPromptAccountIds,
     forceAllowFrom,
+    runtime,
   }) => {
     const qqOverride = accountOverrides.qq?.trim();
     const defaultQQAccountId = resolveDefaultQQAccountId(cfg);
@@ -205,14 +212,102 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
     });
     const accountConfigured = Boolean(resolvedAccount.httpUrl);
 
-    if (!accountConfigured) {
-      await noteQQSetupHelp(prompter);
+    // Check if NapCatQQ is already installed
+    const existingInstall = runtime ? await detectNapCatQQ(runtime) : null;
+
+    if (!accountConfigured && !existingInstall) {
+      // Ask if user wants to auto-install NapCatQQ
+      const autoInstall = await prompter.confirm({
+        message: "NapCatQQ not detected. Would you like to auto-install it?",
+        initialValue: true,
+      });
+
+      if (autoInstall && runtime) {
+        await prompter.note(
+          "OpenClaw will download and install NapCatQQ from GitHub. " +
+            "This may take a few minutes depending on your network.",
+          "Auto-installation",
+        );
+
+        const httpPort = 3000;
+        const wsPort = 3001;
+
+        const installResult = await installNapCatQQ(runtime, {
+          httpPort,
+          wsPort,
+        });
+
+        if (installResult.ok) {
+          await prompter.note(
+            `NapCatQQ ${installResult.version} installed successfully.\n` +
+              `Configuration: ${installResult.configPath}\n` +
+              `HTTP API: http://localhost:${httpPort}\n` +
+              `WebSocket: ws://localhost:${wsPort}`,
+            "Installation Complete",
+          );
+
+          // Ask if user wants to start NapCatQQ now
+          const startNow = await prompter.confirm({
+            message: "Start NapCatQQ now?",
+            initialValue: true,
+          });
+
+          if (startNow && installResult.installPath) {
+            const startResult = await startNapCatQQ(runtime, installResult.installPath);
+            if (startResult.ok) {
+              await prompter.note(
+                `NapCatQQ started with PID ${startResult.pid}.\n` +
+                  "You may need to scan a QR code with QQ mobile app to login.",
+                "NapCatQQ Started",
+              );
+            } else {
+              await prompter.note(
+                `Failed to start NapCatQQ: ${startResult.error}\n` +
+                  "You can start it manually later.",
+                "Warning",
+              );
+            }
+          }
+
+          // Pre-fill the HTTP and WebSocket URLs
+          next = {
+            ...next,
+            channels: {
+              ...next.channels,
+              qq: {
+                ...next.channels?.qq,
+                enabled: true,
+                httpUrl: `http://localhost:${httpPort}`,
+                wsUrl: `ws://localhost:${wsPort}`,
+              },
+            },
+          };
+        } else {
+          await prompter.note(
+            `Failed to install NapCatQQ: ${installResult.error}\n` +
+              "Please install manually following the instructions.",
+            "Installation Failed",
+          );
+          await noteQQSetupHelp(prompter);
+        }
+      } else {
+        await noteQQSetupHelp(prompter);
+      }
+    } else if (existingInstall && !accountConfigured) {
+      await prompter.note(
+        `Existing NapCatQQ installation detected at: ${existingInstall}\n` +
+          "Please provide the HTTP and WebSocket URLs.",
+        "Existing Installation",
+      );
     }
 
+    // Get HTTP URL
+    const currentHttpUrl = resolveQQAccount({ cfg: next, accountId: qqAccountId }).config
+      .httpUrl;
     const httpUrl = await prompter.text({
       message: "NapCatQQ HTTP URL",
       placeholder: "http://localhost:3000",
-      initialValue: resolvedAccount.config.httpUrl ?? "http://localhost:3000",
+      initialValue: currentHttpUrl ?? "http://localhost:3000",
       validate: (value) => {
         const trimmed = String(value ?? "").trim();
         if (!trimmed) return "Required";
@@ -223,10 +318,12 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
       },
     });
 
+    // Get WebSocket URL
+    const currentWsUrl = resolveQQAccount({ cfg: next, accountId: qqAccountId }).config.wsUrl;
     const wsUrl = await prompter.text({
       message: "NapCatQQ WebSocket URL",
       placeholder: "ws://localhost:3001",
-      initialValue: resolvedAccount.config.wsUrl ?? "ws://localhost:3001",
+      initialValue: currentWsUrl ?? "ws://localhost:3001",
       validate: (value) => {
         const trimmed = String(value ?? "").trim();
         if (!trimmed) return "Required";
@@ -237,22 +334,33 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
       },
     });
 
+    // Ask about access token
     const hasAccessToken = await prompter.confirm({
       message: "Does NapCatQQ require an access token?",
-      initialValue: Boolean(resolvedAccount.config.accessToken),
+      initialValue: false,
     });
 
     let accessToken: string | undefined;
     if (hasAccessToken) {
       accessToken = String(
         await prompter.text({
-          message: "Enter access token",
-          initialValue: resolvedAccount.config.accessToken ?? undefined,
-          validate: (value) => (String(value ?? "").trim() ? undefined : "Required"),
+          message: "Enter access token (leave empty to generate random)",
+          initialValue: "",
         }),
       ).trim();
+
+      // Generate random token if empty
+      if (!accessToken) {
+        accessToken = Math.random().toString(36).substring(2, 15);
+        await prompter.note(
+          `Generated random access token: ${accessToken}\n` +
+            "Please update your NapCatQQ configuration to use this token.",
+          "Access Token",
+        );
+      }
     }
 
+    // Update config
     const accountConfig = {
       enabled: true,
       httpUrl: String(httpUrl).trim(),
@@ -290,6 +398,7 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
       };
     }
 
+    // Configure allowFrom if needed
     if (forceAllowFrom) {
       next = await promptQQAllowFrom({
         cfg: next,
