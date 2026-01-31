@@ -168,6 +168,15 @@ type BuildTemplateMessageFromPayload =
   typeof import("../../line/template-messages.js").buildTemplateMessageFromPayload;
 type MonitorLineProvider = typeof import("../../line/monitor.js").monitorLineProvider;
 
+// QQ channel types
+type ListQQAccountIds = typeof import("../../qq/accounts.js").listQQAccountIds;
+type ResolveDefaultQQAccountId = typeof import("../../qq/accounts.js").resolveDefaultQQAccountId;
+type ResolveQQAccount = typeof import("../../qq/accounts.js").resolveQQAccount;
+type NormalizeQQAccountId = typeof import("../../routing/session-key.js").normalizeAccountId;
+type ProbeQQ = typeof import("../../qq/probe.js").probeQQ;
+type SendMessageQQ = typeof import("../../qq/send.js").sendMessageQQ;
+type MonitorQQProvider = typeof import("../../qq/monitor.js").monitorQQProvider;
+
 export type RuntimeLogger = {
   debug?: (message: string) => void;
   info: (message: string) => void;
@@ -346,6 +355,15 @@ export type PluginRuntime = {
       createQuickReplyItems: CreateQuickReplyItems;
       buildTemplateMessageFromPayload: BuildTemplateMessageFromPayload;
       monitorLineProvider: MonitorLineProvider;
+    };
+    qq: {
+      listQQAccountIds: ListQQAccountIds;
+      resolveDefaultQQAccountId: ResolveDefaultQQAccountId;
+      resolveQQAccount: ResolveQQAccount;
+      normalizeAccountId: NormalizeQQAccountId;
+      probeQQ: ProbeQQ;
+      sendMessageQQ: SendMessageQQ;
+      monitorQQProvider: MonitorQQProvider;
     };
   };
   logging: {

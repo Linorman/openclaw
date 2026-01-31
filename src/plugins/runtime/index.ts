@@ -90,6 +90,7 @@ import {
 } from "../../pairing/pairing-store.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
 import { resolveAgentRoute } from "../../routing/resolve-route.js";
+import { normalizeAccountId } from "../../routing/session-key.js";
 import { monitorSignalProvider } from "../../signal/index.js";
 import { probeSignal } from "../../signal/probe.js";
 import { sendMessageSignal } from "../../signal/send.js";
@@ -144,6 +145,14 @@ import {
 } from "../../line/send.js";
 import { monitorLineProvider } from "../../line/monitor.js";
 import { buildTemplateMessageFromPayload } from "../../line/template-messages.js";
+import {
+  listQQAccountIds,
+  resolveDefaultQQAccountId,
+  resolveQQAccount,
+} from "../../qq/accounts.js";
+import { monitorQQProvider } from "../../qq/monitor.js";
+import { probeQQ } from "../../qq/probe.js";
+import { sendMessageQQ } from "../../qq/send.js";
 
 import type { PluginRuntime } from "./types.js";
 
@@ -334,6 +343,15 @@ export function createPluginRuntime(): PluginRuntime {
         createQuickReplyItems,
         buildTemplateMessageFromPayload,
         monitorLineProvider,
+      },
+      qq: {
+        listQQAccountIds,
+        resolveDefaultQQAccountId,
+        resolveQQAccount,
+        normalizeAccountId,
+        probeQQ,
+        sendMessageQQ,
+        monitorQQProvider,
       },
     },
     logging: {

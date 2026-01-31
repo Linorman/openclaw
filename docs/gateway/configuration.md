@@ -620,7 +620,7 @@ Resolution order:
 2. Provider default: `channels.<provider>.dmHistoryLimit`
 3. No limit (all history retained)
 
-Supported providers: `telegram`, `whatsapp`, `discord`, `slack`, `signal`, `imessage`, `msteams`.
+Supported providers: `telegram`, `whatsapp`, `discord`, `slack`, `signal`, `imessage`, `msteams`, `qq`.
 
 Per-agent override (takes precedence when set, even `[]`):
 ```json5

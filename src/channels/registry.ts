@@ -12,6 +12,7 @@ export const CHAT_CHANNEL_ORDER = [
   "slack",
   "signal",
   "imessage",
+  "qq",
 ] as const;
 
 export type ChatChannelId = (typeof CHAT_CHANNEL_ORDER)[number];
@@ -97,6 +98,16 @@ const CHAT_CHANNEL_META: Record<ChatChannelId, ChannelMeta> = {
     docsLabel: "imessage",
     blurb: "this is still a work in progress.",
     systemImage: "message.fill",
+  },
+  qq: {
+    id: "qq",
+    label: "QQ",
+    selectionLabel: "QQ (NapCatQQ)",
+    detailLabel: "QQ Bot",
+    docsPath: "/channels/qq",
+    docsLabel: "qq",
+    blurb: "QQ messaging via NapCatQQ - OneBot 11 compatible QQ bot framework.",
+    systemImage: "bubble.left",
   },
 };
 

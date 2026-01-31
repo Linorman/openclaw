@@ -1,6 +1,7 @@
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveDiscordAccount } from "../discord/accounts.js";
 import { resolveIMessageAccount } from "../imessage/accounts.js";
+import { resolveQQAccount } from "../qq/accounts.js";
 import { resolveSignalAccount } from "../signal/accounts.js";
 import { resolveSlackAccount, resolveSlackReplyToMode } from "../slack/accounts.js";
 import { buildSlackThreadingToolContext } from "../slack/threading-tool-context.js";
@@ -363,6 +364,36 @@ const DOCKS: Record<ChatChannelId, ChannelDock> = {
           (isDirect ? (context.From ?? context.To) : context.To)?.trim() || undefined;
         return {
           currentChannelId: channelId,
+          currentThreadTs: context.ReplyToId,
+          hasRepliedRef,
+        };
+      },
+    },
+  },
+  qq: {
+    id: "qq",
+    capabilities: {
+      chatTypes: ["direct", "group"],
+      reactions: false,
+      media: true,
+    },
+    outbound: { textChunkLimit: 4000 },
+    config: {
+      resolveAllowFrom: ({ cfg, accountId }) =>
+        (resolveQQAccount({ cfg, accountId }).config.allowFrom ?? []).map((entry) =>
+          String(entry),
+        ),
+      formatAllowFrom: ({ allowFrom }) =>
+        allowFrom
+          .map((entry) => String(entry).trim())
+          .filter(Boolean)
+          .map((entry) => entry.replace(/^qq:/i, "")),
+    },
+    threading: {
+      resolveReplyToMode: ({ cfg }) => cfg.channels?.qq?.replyToMode ?? "first",
+      buildToolContext: ({ context, hasRepliedRef }) => {
+        return {
+          currentChannelId: context.To?.trim() || undefined,
           currentThreadTs: context.ReplyToId,
           hasRepliedRef,
         };

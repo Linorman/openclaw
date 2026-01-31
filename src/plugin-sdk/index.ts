@@ -371,3 +371,16 @@ export type { ProcessedLineMessage } from "../line/markdown-to-line.js";
 
 // Media utilities
 export { loadWebMedia, type WebMediaResult } from "../web/media.js";
+
+// Channel: QQ
+export {
+  listQQAccountIds,
+  resolveDefaultQQAccountId,
+  resolveQQAccount,
+  type ResolvedQQAccount,
+} from "../qq/accounts.js";
+export { sendMessageQQ, type QQSendResult, type QQSendOptions } from "../qq/send.js";
+export { probeQQ, type QQProbeResult } from "../qq/probe.js";
+export { monitorQQProvider, type QQMonitorOptions, type QQMonitorResult } from "../qq/monitor.js";
+export type { QQEvent, QQMessageEvent, QQInboundMessage, QQMessageSegment, QQChatType } from "../qq/types.js";
+export { qqOnboardingAdapter } from "../channels/plugins/onboarding/qq.js";
