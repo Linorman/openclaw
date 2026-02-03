@@ -765,9 +765,15 @@ export async function startNapCatQQ(
     runtime.log(`[napcat] Spawning: ${spawnCommand} ${spawnArgs.join(" ")}`);
     runtime.log(`[napcat] Working directory: ${NAPCAT_BASE_DIR}`);
 
+    const logDir = path.join(os.homedir(), ".openclaw", "logs");
+    await fs.mkdir(logDir, { recursive: true });
+    const errLog = path.join(logDir, "napcat.error.log");
+
+    const errFd = await fs.open(errLog, "a");
+
     const child = spawn(spawnCommand, spawnArgs, {
       detached: true,
-      stdio: ["ignore", "ignore", "ignore"],
+      stdio: ["ignore", "ignore", errFd.fd],
       cwd: NAPCAT_BASE_DIR,
       env: {
         ...process.env,
@@ -776,6 +782,16 @@ export async function startNapCatQQ(
     });
 
     runtime.log(`[napcat] Spawned PID: ${child.pid}`);
+
+    child.on("error", (err) => {
+      runtime.log(`[napcat] Spawn error: ${err.message}`);
+    });
+
+    child.on("exit", (code, signal) => {
+      runtime.log(`[napcat] Process exited with code ${code}, signal ${signal}`);
+    });
+
+    errFd.close().catch(() => {});
 
     child.unref();
 
@@ -815,6 +831,14 @@ export async function startNapCatQQ(
 
     if (!qqRunning) {
       runtime.log(`[napcat] Last process list:\n${lastProcessList}`);
+
+      try {
+        const errContent = await fs.readFile(errLog, "utf-8");
+        runtime.log(`[napcat] Error log:\n${errContent || "(empty)"}`);
+      } catch {
+        runtime.log("[napcat] Could not read error log");
+      }
+
       return {
         ok: false,
         error: "NapCat QQ process not detected after starting. Check logs for details.",
