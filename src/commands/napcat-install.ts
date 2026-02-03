@@ -828,21 +828,16 @@ export async function startNapCatQQ(
       "--disable-gpu-sandbox",
     ];
 
-    const args = [QQ_EXECUTABLE, ...chromiumFlags];
+    const qqArgs = [...chromiumFlags];
     if (options?.qqNumber) {
-      args.push("-q", options.qqNumber);
+      qqArgs.push("-q", options.qqNumber);
     }
 
-    // Always use xvfb-run
-    const spawnCommand = "xvfb-run";
-    // xvfb-run options:
-    // -a: auto-display (find free display number)
-    // --server-args: Xvfb server arguments for better compatibility
-    const spawnArgs = [
-      "-a",
-      "--server-args=-screen 0 1280x720x24 -ac +extension GLX +render -noreset",
-      ...args,
-    ];
+    // Use screen to run NapCat in background (official recommended way)
+    // Reference: NapCat-Installer script
+    // screen -dmS napcat bash -c "xvfb-run -a ${QQ_EXECUTABLE} --no-sandbox"
+    const screenName = "openclaw-napcat";
+    const xvfbCommand = `xvfb-run -a ${QQ_EXECUTABLE} ${qqArgs.join(" ")}`;
 
     const logDir = path.join(os.homedir(), ".openclaw", "logs");
     await fs.mkdir(logDir, { recursive: true });
@@ -850,42 +845,48 @@ export async function startNapCatQQ(
     const errLog = path.join(logDir, "napcat.stderr.log");
 
     runtime.log(`[NapCat] Logs: ${outLog}, ${errLog}`);
+    runtime.log(`[NapCat] Starting with screen session: ${screenName}`);
+    runtime.log(`[NapCat] Command: ${xvfbCommand}`);
 
-    const outFd = await fs.open(outLog, "a");
-    const errFd = await fs.open(errLog, "a");
+    // Kill existing screen session if exists
+    try {
+      await runExec("screen", ["-S", screenName, "-X", "quit"], 3000);
+    } catch {
+      // Ignore error if session doesn't exist
+    }
 
-    runtime.log(`[NapCat] Spawning: ${spawnCommand} ${spawnArgs.join(" ")}`);
-
-    const child = spawn(spawnCommand, spawnArgs, {
-      detached: true,
-      stdio: ["ignore", outFd.fd, errFd.fd],
-      cwd: NAPCAT_BASE_DIR,
-      env: {
-        ...process.env,
-        // xvfb-run will set DISPLAY to the appropriate virtual display
-        // Disable GPU for Electron/Chromium in virtual display environment
-        ELECTRON_DISABLE_GPU: "1",
-        ELECTRON_DISABLE_SANDBOX: "1",
+    // Start new screen session with xvfb-run
+    // Using bash -c to properly handle the command with arguments
+    const child = spawn(
+      "screen",
+      ["-dmS", screenName, "bash", "-c", `${xvfbCommand} > ${outLog} 2> ${errLog}`],
+      {
+        detached: false,
+        stdio: "ignore",
+        cwd: NAPCAT_BASE_DIR,
+        env: {
+          ...process.env,
+          // Disable GPU for Electron/Chromium in virtual display environment
+          ELECTRON_DISABLE_GPU: "1",
+          ELECTRON_DISABLE_SANDBOX: "1",
+        },
       },
-    });
+    );
 
-    runtime.log(`[NapCat] Spawned PID: ${child.pid}`);
+    runtime.log(`[NapCat] Screen session started: ${screenName}`);
 
+    // Don't track the screen process directly since it exits immediately after creating the session
     child.on("error", (err) => {
-      runtime.log(`[NapCat] Process error: ${err.message}`);
-    });
-    child.on("exit", (code) => {
-      runtime.log(`[NapCat] Process exited with code: ${code}`);
+      runtime.log(`[NapCat] Screen error: ${err.message}`);
     });
 
-    outFd.close().catch(() => {});
-    errFd.close().catch(() => {});
+    // Wait for screen to create the session
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    child.unref();
-
-    napcatProcess = child;
+    napcatProcess = null; // Screen manages the process, not us
     capturedQRCode = null;
 
+    // Tail the log file to capture QR code
     const tailProcess = spawn("tail", ["-n", "0", "-f", outLog], {
       stdio: ["ignore", "pipe", "ignore"],
     });
@@ -903,6 +904,7 @@ export async function startNapCatQQ(
       }
     });
 
+    // Wait for NapCat to initialize (longer wait for screen-based startup)
     await new Promise((resolve) => setTimeout(resolve, 15000));
 
     tailProcess.kill();
@@ -955,21 +957,19 @@ export async function startNapCatQQ(
   }
 }
 
+const NAPCAT_SCREEN_NAME = "openclaw-napcat";
+
 export async function stopNapCatQQ(
   _runtime?: RuntimeEnv,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (napcatProcess && !napcatProcess.killed) {
-    try {
-      napcatProcess.kill("SIGTERM");
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      if (!napcatProcess.killed) {
-        napcatProcess.kill("SIGKILL");
-      }
-    } catch {}
-    napcatProcess = null;
+  // Stop the screen session
+  try {
+    await runExec("screen", ["-S", NAPCAT_SCREEN_NAME, "-X", "quit"], 5000);
+  } catch {
+    // Screen session may not exist
   }
 
+  // Also kill any remaining QQ/xvfb processes
   await killExistingNapCat();
 
   return { ok: true };
