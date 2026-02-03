@@ -752,16 +752,35 @@ export async function startNapCatQQ(
       }
     }
 
-    const args = hasDisplay
-      ? [QQ_EXECUTABLE, "--no-sandbox"]
-      : ["-a", QQ_EXECUTABLE, "--no-sandbox"];
+    // Chromium/Electron flags for headless environment
+    const chromiumFlags = [
+      "--no-sandbox",
+      "--disable-gpu",
+      "--disable-software-rasterizer",
+      "--disable-dev-shm-usage",
+      "--disable-setuid-sandbox",
+      "--disable-accelerated-2d-canvas",
+      "--disable-accelerated-jpeg-decoding",
+      "--disable-accelerated-mjpeg-decode",
+      "--disable-accelerated-video-decode",
+      "--disable-gpu-compositing",
+      "--disable-gpu-rasterization",
+      "--disable-gpu-sandbox",
+    ];
+
+    const args = hasDisplay ? [QQ_EXECUTABLE, "--no-sandbox"] : [QQ_EXECUTABLE, ...chromiumFlags];
     if (options?.qqNumber) {
       args.push("-q", options.qqNumber);
     }
 
     const useXvfb = !hasDisplay;
     const spawnCommand = useXvfb ? "xvfb-run" : args[0];
-    const spawnArgs = useXvfb ? ["-a", args[0], ...args.slice(1)] : args.slice(1);
+    // xvfb-run options:
+    // -a: auto-display (find free display number)
+    // --server-args: Xvfb server arguments for better compatibility
+    const spawnArgs = useXvfb
+      ? ["-a", "--server-args=-screen 0 1280x720x24 -ac +extension GLX +render -noreset", ...args]
+      : args.slice(1);
 
     const logDir = path.join(os.homedir(), ".openclaw", "logs");
     await fs.mkdir(logDir, { recursive: true });
@@ -782,6 +801,9 @@ export async function startNapCatQQ(
       env: {
         ...process.env,
         ...(useXvfb ? { DISPLAY: ":99" } : {}),
+        // Disable GPU for Electron/Chromium in headless environment
+        ELECTRON_DISABLE_GPU: "1",
+        ELECTRON_DISABLE_SANDBOX: "1",
       },
     });
 
