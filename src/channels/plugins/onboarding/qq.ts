@@ -272,6 +272,7 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
         ].join("\n"),
         "QQ Setup",
       );
+      await killExistingNapCat();
       return { cfg: next, accountId: qqAccountId };
     }
 
@@ -330,6 +331,7 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
             ].join("\n"),
             "Installation Failed",
           );
+          await killExistingNapCat();
           return { cfg: next, accountId: qqAccountId };
         }
       } else {
@@ -344,6 +346,7 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
           ].join("\n"),
           "QQ Setup",
         );
+        await killExistingNapCat();
         return { cfg: next, accountId: qqAccountId };
       }
     } else if (!installPath) {
@@ -375,6 +378,7 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
         ["✗ Failed to start NapCatQQ:", startResult.error || "Unknown error"].join("\n"),
         "Error",
       );
+      await killExistingNapCat();
       return { cfg: next, accountId: qqAccountId };
     }
 
@@ -701,12 +705,17 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
           ].join("\n"),
           "Incomplete Setup",
         );
+        await killExistingNapCat();
         return { cfg: next, accountId: qqAccountId };
       }
     }
 
     // Step 5: Configure allowFrom
-    if (forceAllowFrom) {
+    const shouldConfigureAllowFrom = await prompter.confirm({
+      message: "Configure QQ owner allowlist now?",
+      initialValue: true,
+    });
+    if (shouldConfigureAllowFrom) {
       next = await promptQQAllowFrom({
         cfg: next,
         prompter,
