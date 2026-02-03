@@ -760,16 +760,8 @@ export async function startNapCatQQ(
     }
 
     const useXvfb = !hasDisplay;
-
-    runtime.log(`[napcat] Has display: ${hasDisplay}, use xvfb: ${useXvfb}`);
-    runtime.log(`[napcat] QQ_EXECUTABLE: ${QQ_EXECUTABLE}`);
-    runtime.log(`[napcat] NAPCAT_BASE_DIR: ${NAPCAT_BASE_DIR}`);
-
     const spawnCommand = useXvfb ? "xvfb-run" : args[0];
     const spawnArgs = useXvfb ? ["-a", args[0], ...args.slice(1)] : args.slice(1);
-
-    runtime.log(`[napcat] Spawning: ${spawnCommand} ${spawnArgs.join(" ")}`);
-    runtime.log(`[napcat] Working directory: ${NAPCAT_BASE_DIR}`);
 
     const logDir = path.join(os.homedir(), ".openclaw", "logs");
     await fs.mkdir(logDir, { recursive: true });
@@ -789,15 +781,8 @@ export async function startNapCatQQ(
       },
     });
 
-    runtime.log(`[napcat] Spawned PID: ${child.pid}`);
-
-    child.on("error", (err) => {
-      runtime.log(`[napcat] Spawn error: ${err.message}`);
-    });
-
-    child.on("exit", (code, signal) => {
-      runtime.log(`[napcat] Process exited with code ${code}, signal ${signal}`);
-    });
+    child.on("error", () => {});
+    child.on("exit", () => {});
 
     outFd.close().catch(() => {});
     errFd.close().catch(() => {});
@@ -811,7 +796,6 @@ export async function startNapCatQQ(
       stdio: ["ignore", "pipe", "ignore"],
     });
 
-    let logLines = 0;
     tailProcess.stdout?.on("data", (data) => {
       const lines = data.toString().split("\n");
       for (const line of lines) {
@@ -821,12 +805,6 @@ export async function startNapCatQQ(
         const qrMatch = trimmed.match(/二维码解码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/);
         if (qrMatch && qrMatch[1]) {
           capturedQRCode = qrMatch[1];
-          runtime.log(`[napcat] QR Code captured: ${qrMatch[1].substring(0, 50)}...`);
-        }
-
-        if (logLines < 30) {
-          logLines++;
-          runtime.log(`[napcat] ${trimmed.substring(0, 200)}`);
         }
       }
     });
@@ -836,51 +814,26 @@ export async function startNapCatQQ(
     tailProcess.kill();
 
     let qqRunning = false;
-    let lastProcessList = "";
-
     for (let i = 0; i < 10; i++) {
       try {
         const { stdout: psOut } = await runExec("ps", ["aux"], 5000);
-        lastProcessList = psOut;
-
         const qqProcesses = psOut
           .split("\n")
           .filter(
             (line) => line.includes("qq") && !line.includes("grep") && !line.includes("ps aux"),
           );
-
         if (qqProcesses.length > 0) {
-          runtime.log(`[napcat] Found QQ processes:\n${qqProcesses.join("\n")}`);
           qqRunning = true;
           break;
         }
-      } catch (err) {
-        runtime.log(`[napcat] Process check error: ${err}`);
-      }
+      } catch {}
 
       if (!qqRunning) {
-        runtime.log(`[napcat] QQ not found yet, retry ${i + 1}/10...`);
         await new Promise((resolve) => setTimeout(resolve, 3000));
       }
     }
 
     if (!qqRunning) {
-      runtime.log(`[napcat] Last process list:\n${lastProcessList}`);
-
-      try {
-        const outContent = await fs.readFile(outLog, "utf-8");
-        runtime.log(`[napcat] Stdout log:\n${outContent.slice(-2000) || "(empty)"}`);
-      } catch {
-        runtime.log("[napcat] Could not read stdout log");
-      }
-
-      try {
-        const errContent = await fs.readFile(errLog, "utf-8");
-        runtime.log(`[napcat] Stderr log:\n${errContent.slice(-2000) || "(empty)"}`);
-      } catch {
-        runtime.log("[napcat] Could not read stderr log");
-      }
-
       return {
         ok: false,
         error: "NapCat QQ process not detected after starting. Check logs for details.",
@@ -1265,9 +1218,6 @@ export async function waitForNapCatLogin(
   maxAttempts: number = 60,
   onAttempt?: (attempt: number, result: { loggedIn: boolean; error?: string }) => void,
 ): Promise<{ success: boolean; userId?: string; nickname?: string; error?: string }> {
-  console.log(
-    `[waitForNapCatLogin] Starting poll on port ${httpPort}, token: ${accessToken ? accessToken.substring(0, 8) + "..." : "(none)"}`,
-  );
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const result = await checkNapCatLoginViaOneBot(httpPort, accessToken);
 
@@ -1276,7 +1226,6 @@ export async function waitForNapCatLogin(
     }
 
     if (result.loggedIn) {
-      console.log(`[waitForNapCatLogin] Login detected at attempt ${attempt + 1}`);
       return {
         success: true,
         userId: result.userId,
@@ -1287,7 +1236,6 @@ export async function waitForNapCatLogin(
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
 
-  console.log(`[waitForNapCatLogin] Timeout after ${maxAttempts} attempts`);
   return { success: false, error: "Timeout waiting for login" };
 }
 

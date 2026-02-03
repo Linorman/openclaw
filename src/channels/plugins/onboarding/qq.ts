@@ -49,15 +49,7 @@ async function detectQQLinked(
   onebotPort: number,
   accessToken?: string,
 ): Promise<{ linked: boolean; nickname?: string; qqNumber?: string; error?: string }> {
-  // Use OneBot HTTP API to check login status
-  console.log(
-    `[detectQQLinked] Port: ${onebotPort}, Token: ${accessToken ? accessToken.substring(0, 8) + "..." : "(none)"}`,
-  );
   const result = await checkNapCatLoginViaOneBot(onebotPort, accessToken);
-
-  console.log(
-    `[detectQQLinked] Result: loggedIn=${result.loggedIn}, error=${result.error || "none"}`,
-  );
 
   if (result.loggedIn && result.userId) {
     return {
@@ -498,7 +490,6 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
         "QQ Linked",
       );
 
-      // Update account-specific NapCat config
       if (loginCheck.qqNumber && httpToken) {
         const { updateNapCatConfig } = await import("../../../commands/napcat-install.js");
         await updateNapCatConfig({
@@ -507,7 +498,6 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
           wsPort: napCatConfig?.wsPort ?? 3001,
           accessToken: httpToken,
         });
-        console.log(`[configure] Updated NapCat config for QQ ${loginCheck.qqNumber}`);
       }
     } else {
       // Guide user through WebUI login
@@ -658,7 +648,6 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
                 "Success",
               );
 
-              // Update account-specific NapCat config
               if (verifyResult.qqNumber && httpToken) {
                 const { updateNapCatConfig } = await import("../../../commands/napcat-install.js");
                 await updateNapCatConfig({
@@ -667,7 +656,6 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
                   wsPort: napCatConfig?.wsPort ?? 3001,
                   accessToken: httpToken,
                 });
-                console.log(`[configure] Updated NapCat config for QQ ${verifyResult.qqNumber}`);
               }
 
               break;
