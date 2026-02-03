@@ -734,25 +734,24 @@ export async function startNapCatQQ(
 
     const { spawn } = await import("node:child_process");
 
-    const hasDisplay = process.env.DISPLAY !== undefined && process.env.DISPLAY !== "";
-
-    if (!hasDisplay) {
-      try {
-        await runExec("which", ["xvfb-run"], 5000);
-      } catch {
-        return {
-          ok: false,
-          error:
-            "xvfb-run not found. Linux QQ requires a display server.\n" +
-            "Please either:\n" +
-            "  1. Install xvfb: sudo apt-get install xvfb (Debian/Ubuntu) or sudo dnf install xorg-x11-server-Xvfb (RHEL/CentOS)\n" +
-            "  2. Or run 'openclaw onboard qq' which will auto-install dependencies\n" +
-            "  3. Or connect via SSH with X11 forwarding (ssh -X)",
-        };
-      }
+    // Always use xvfb-run for NapCat (recommended for server environments)
+    // NapCat typically runs on servers without displays, and xvfb provides
+    // a virtual display for QQ's Electron-based UI
+    try {
+      await runExec("which", ["xvfb-run"], 5000);
+    } catch {
+      return {
+        ok: false,
+        error:
+          "xvfb-run not found. NapCatQQ requires xvfb to run.\n" +
+          "Please either:\n" +
+          "  1. Install xvfb: sudo apt-get install xvfb (Debian/Ubuntu) or sudo dnf install xorg-x11-server-Xvfb (RHEL/CentOS)\n" +
+          "  2. Or run 'openclaw onboard qq' which will auto-install dependencies",
+      };
     }
 
-    // Chromium/Electron flags for headless environment
+    // Chromium/Electron flags for headless/virtual display environment
+    // Disable GPU and sandbox as they can cause issues in virtual displays
     const chromiumFlags = [
       "--no-sandbox",
       "--disable-gpu",
@@ -768,19 +767,21 @@ export async function startNapCatQQ(
       "--disable-gpu-sandbox",
     ];
 
-    const args = hasDisplay ? [QQ_EXECUTABLE, "--no-sandbox"] : [QQ_EXECUTABLE, ...chromiumFlags];
+    const args = [QQ_EXECUTABLE, ...chromiumFlags];
     if (options?.qqNumber) {
       args.push("-q", options.qqNumber);
     }
 
-    const useXvfb = !hasDisplay;
-    const spawnCommand = useXvfb ? "xvfb-run" : args[0];
+    // Always use xvfb-run
+    const spawnCommand = "xvfb-run";
     // xvfb-run options:
     // -a: auto-display (find free display number)
     // --server-args: Xvfb server arguments for better compatibility
-    const spawnArgs = useXvfb
-      ? ["-a", "--server-args=-screen 0 1280x720x24 -ac +extension GLX +render -noreset", ...args]
-      : args.slice(1);
+    const spawnArgs = [
+      "-a",
+      "--server-args=-screen 0 1280x720x24 -ac +extension GLX +render -noreset",
+      ...args,
+    ];
 
     const logDir = path.join(os.homedir(), ".openclaw", "logs");
     await fs.mkdir(logDir, { recursive: true });
@@ -800,8 +801,8 @@ export async function startNapCatQQ(
       cwd: NAPCAT_BASE_DIR,
       env: {
         ...process.env,
-        ...(useXvfb ? { DISPLAY: ":99" } : {}),
-        // Disable GPU for Electron/Chromium in headless environment
+        // xvfb-run will set DISPLAY to the appropriate virtual display
+        // Disable GPU for Electron/Chromium in virtual display environment
         ELECTRON_DISABLE_GPU: "1",
         ELECTRON_DISABLE_SANDBOX: "1",
       },
