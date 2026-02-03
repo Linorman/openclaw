@@ -382,6 +382,12 @@ export {
 export { sendMessageQQ, type QQSendResult, type QQSendOptions } from "../qq/send.js";
 export { probeQQ, type QQProbeResult } from "../qq/probe.js";
 export { monitorQQProvider, type QQMonitorOptions, type QQMonitorResult } from "../qq/monitor.js";
+export {
+  buildQQMessageContext,
+  parseQQInboundMessage,
+  type QQMessageContext,
+} from "../qq/message-context.js";
+export { dispatchQQMessage, handleQQInboundMessage } from "../qq/message-dispatch.js";
 export type { QQEvent, QQMessageEvent, QQInboundMessage, QQMessageSegment, QQChatType } from "../qq/types.js";
 export { qqOnboardingAdapter } from "../channels/plugins/onboarding/qq.js";
 export {

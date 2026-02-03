@@ -1,7 +1,7 @@
 import type { OpenClawConfig } from "../config/config.js";
 import type { RuntimeEnv } from "../runtime.js";
 import type { ResolvedQQAccount } from "./accounts.js";
-import type { QQEvent } from "./types.js";
+import type { QQEvent, QQMessageEvent } from "./types.js";
 import { WebSocket } from "ws";
 
 export type QQMonitorOptions = {
@@ -10,6 +10,7 @@ export type QQMonitorOptions = {
   runtime: RuntimeEnv;
   abortSignal: AbortSignal;
   onEvent: (event: QQEvent) => Promise<void> | void;
+  onMessage?: (event: QQMessageEvent) => Promise<void> | void;
   onError?: (error: Error) => void;
 };
 
@@ -18,7 +19,7 @@ export type QQMonitorResult = {
 };
 
 export function monitorQQProvider(options: QQMonitorOptions): QQMonitorResult {
-  const { account, abortSignal, onEvent, onError } = options;
+  const { account, abortSignal, onEvent, onMessage, onError } = options;
   
   const wsUrl = account.wsUrl;
   if (!wsUrl) {
@@ -50,6 +51,10 @@ export function monitorQQProvider(options: QQMonitorOptions): QQMonitorResult {
             typeof data === "string" ? data : Buffer.from(data as Buffer).toString(),
           ) as QQEvent;
           await onEvent(event);
+          
+          if (event.post_type === "message" && onMessage) {
+            await onMessage(event as QQMessageEvent);
+          }
         } catch (error) {
           console.error(`[qq:${account.accountId}] Failed to process event:`, error);
         }

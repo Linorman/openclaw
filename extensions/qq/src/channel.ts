@@ -16,12 +16,17 @@ import {
   sendMessageQQ,
   setAccountEnabledInConfigSection,
   monitorQQProvider,
+  buildQQMessageContext,
+  dispatchQQMessage,
+  parseQQInboundMessage,
   type ChannelPlugin,
   type OpenClawConfig,
   type ResolvedQQAccount,
   type QQEvent,
   type QQMessageEvent,
 } from "openclaw/plugin-sdk";
+
+import { QQConfigSchema } from "./config-schema.js";
 
 import { getQQRuntime } from "./runtime.js";
 
@@ -56,47 +61,7 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
     blockStreaming: false,
   },
   reload: { configPrefixes: ["channels.qq"] },
-  configSchema: buildChannelConfigSchema({
-    type: "object",
-    properties: {
-      httpUrl: { type: "string", format: "uri" },
-      wsUrl: { type: "string", format: "uri" },
-      accessToken: { type: "string" },
-      tokenFile: { type: "string" },
-      enabled: { type: "boolean" },
-      name: { type: "string" },
-      dmPolicy: { type: "string", enum: ["pairing", "allowlist", "open", "disabled"] },
-      groupPolicy: { type: "string", enum: ["open", "disabled", "allowlist"] },
-      allowFrom: { type: "array", items: { type: ["string", "number"] } },
-      groupAllowFrom: { type: "array", items: { type: ["string", "number"] } },
-      textChunkLimit: { type: "number" },
-      chunkMode: { type: "string", enum: ["length", "newline"] },
-      replyToMode: { type: "string", enum: ["off", "first", "all"] },
-      historyLimit: { type: "number" },
-      dmHistoryLimit: { type: "number" },
-      connectionTimeoutMs: { type: "number" },
-      reconnectIntervalMs: { type: "number" },
-      linkPreview: { type: "boolean" },
-      accounts: {
-        type: "object",
-        additionalProperties: {
-          type: "object",
-          properties: {
-            httpUrl: { type: "string", format: "uri" },
-            wsUrl: { type: "string", format: "uri" },
-            accessToken: { type: "string" },
-            tokenFile: { type: "string" },
-            enabled: { type: "boolean" },
-            name: { type: "string" },
-            dmPolicy: { type: "string", enum: ["pairing", "allowlist", "open", "disabled"] },
-            groupPolicy: { type: "string", enum: ["open", "disabled", "allowlist"] },
-            allowFrom: { type: "array", items: { type: ["string", "number"] } },
-            groupAllowFrom: { type: "array", items: { type: ["string", "number"] } },
-          },
-        },
-      },
-    },
-  }),
+  configSchema: buildChannelConfigSchema(QQConfigSchema),
   config: {
     listAccountIds: (cfg) => listQQAccountIds(cfg),
     resolveAccount: (cfg, accountId) => resolveQQAccount({ cfg, accountId }),
@@ -341,6 +306,28 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
             const msgEvent = event as QQMessageEvent;
             ctx.log?.info(`[${account.accountId}] Received message from ${msgEvent.sender.nickname}`);
           }
+        },
+        onMessage: async (event) => {
+          const message = parseQQInboundMessage(event, account.accountId);
+          const messageContext = await buildQQMessageContext({
+            message,
+            cfg: ctx.cfg,
+            account,
+            accountId: account.accountId,
+          });
+          
+          if (!messageContext) {
+            ctx.log?.info(`[${account.accountId}] Failed to build message context`);
+            return;
+          }
+          
+          await dispatchQQMessage({
+            context: messageContext,
+            cfg: ctx.cfg,
+            runtime: ctx.runtime,
+            account,
+            accountId: account.accountId,
+          });
         },
         onError: (error) => {
           ctx.log?.error(`[${account.accountId}] QQ WebSocket error: ${error.message}`);

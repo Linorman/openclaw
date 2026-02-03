@@ -1,9 +1,8 @@
 import { cancel, confirm, isCancel, select } from "@clack/prompts";
 
 import {
+  createConfigIO,
   isNixMode,
-  loadConfig,
-  resolveConfigPath,
   resolveOAuthDir,
   resolveStateDir,
 } from "../config/config.js";
@@ -116,9 +115,10 @@ export async function resetCommand(runtime: RuntimeEnv, opts: ResetOptions) {
   }
 
   const dryRun = Boolean(opts.dryRun);
-  const cfg = loadConfig();
+  const configIO = createConfigIO();
+  const cfg = configIO.loadConfig();
+  const configPath = configIO.configPath;
   const stateDir = resolveStateDir();
-  const configPath = resolveConfigPath();
   const oauthDir = resolveOAuthDir();
   const configInsideState = isPathWithin(configPath, stateDir);
   const oauthInsideState = isPathWithin(oauthDir, stateDir);
