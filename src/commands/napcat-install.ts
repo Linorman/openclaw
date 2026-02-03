@@ -759,62 +759,25 @@ export async function startNapCatQQ(
       args.push("-q", options.qqNumber);
     }
 
-    const logDir = path.join(os.homedir(), ".openclaw", "logs");
-    await fs.mkdir(logDir, { recursive: true });
-    const napcatLog = path.join(logDir, "napcat.log");
+    const spawnCommand = hasDisplay ? args[0] : "xvfb-run";
+    const spawnArgs = hasDisplay ? args.slice(1) : [...args];
 
-    const launchCmd = hasDisplay
-      ? `"${args[0]}" ${args
-          .slice(1)
-          .map((a) => `"${a}"`)
-          .join(" ")}`
-      : `xvfb-run "${args[0]}" ${args
-          .slice(1)
-          .map((a) => `"${a}"`)
-          .join(" ")}`;
-
-    const screenCmd = `screen -dmS napcat bash -c 'cd "${NAPCAT_BASE_DIR}" && export DISPLAY=:99 && ${launchCmd} 2>&1 | tee "${napcatLog}"'`;
-
-    await new Promise<void>((resolve, reject) => {
-      const { exec } = require("node:child_process");
-      exec(screenCmd, (error: Error | null) => {
-        if (error) reject(error);
-        else resolve();
-      });
+    const child = spawn(spawnCommand, spawnArgs, {
+      detached: true,
+      stdio: ["ignore", "ignore", "ignore"],
+      cwd: NAPCAT_BASE_DIR,
+      env: {
+        ...process.env,
+        DISPLAY: ":99",
+      },
     });
 
+    child.unref();
+
+    napcatProcess = child;
     capturedQRCode = null;
-    let logLines = 0;
 
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    const tailProcess = spawn("tail", ["-n", "100", "-f", napcatLog], {
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-
-    tailProcess.stdout?.on("data", (data) => {
-      const lines = data.toString().split("\n");
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        const qrMatch = trimmed.match(/二维码解码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/);
-        if (qrMatch && qrMatch[1]) {
-          capturedQRCode = qrMatch[1];
-        }
-
-        if (logLines < 20) {
-          logLines++;
-          runtime.log(`[napcat] ${trimmed.substring(0, 200)}`);
-        }
-      }
-    });
-
-    setTimeout(() => {
-      tailProcess.kill();
-    }, 30000);
-
-    await new Promise((resolve) => setTimeout(resolve, 8000));
+    await new Promise((resolve) => setTimeout(resolve, 10000));
 
     let qqRunning = false;
     for (let i = 0; i < 5; i++) {
