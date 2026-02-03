@@ -56,6 +56,28 @@ let napcatProcess: ReturnType<typeof import("node:child_process").spawn> | null 
 
 let capturedQRCode: string | null = null;
 
+/**
+ * Check if xvfb-run is available in the system PATH
+ * Uses multiple methods for reliability across different systems
+ */
+async function checkXvfbRunAvailable(): Promise<boolean> {
+  // Method 1: Try to run xvfb-run with --help
+  try {
+    const { spawn } = await import("node:child_process");
+    return new Promise((resolve) => {
+      const proc = spawn("xvfb-run", ["--help"], { stdio: "ignore" });
+      proc.on("error", () => resolve(false));
+      proc.on("exit", (code) => resolve(code === 0));
+      setTimeout(() => {
+        proc.kill();
+        resolve(false);
+      }, 2000);
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function isPortAvailable(port: number): Promise<boolean> {
   try {
     const { spawn } = await import("node:child_process");
@@ -737,9 +759,8 @@ export async function startNapCatQQ(
     // Always use xvfb-run for NapCat (recommended for server environments)
     // NapCat typically runs on servers without displays, and xvfb provides
     // a virtual display for QQ's Electron-based UI
-    try {
-      await runExec("which", ["xvfb-run"], 5000);
-    } catch {
+    const xvfbAvailable = await checkXvfbRunAvailable();
+    if (!xvfbAvailable) {
       return {
         ok: false,
         error:
