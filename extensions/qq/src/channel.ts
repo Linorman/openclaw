@@ -339,7 +339,8 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
         if (!startResult.ok) {
           throw new Error(`Failed to start NapCat: ${startResult.error || "Unknown error"}`);
         }
-        ctx.log?.info(`[${account.accountId}] NapCat started (ports: HTTP ${startResult.httpPort}, WS ${startResult.wsPort})`);
+        const pidInfo = startResult.pid ? ` (PID: ${startResult.pid})` : "";
+        ctx.log?.info(`[${account.accountId}] NapCat started${pidInfo} (ports: HTTP ${startResult.httpPort}, WS ${startResult.wsPort})`);
         
         // Wait for NapCat to fully initialize - try to connect to WebSocket port
         ctx.log?.info(`[${account.accountId}] Waiting for NapCat WebSocket port ${wsPort} to be ready...`);

@@ -938,14 +938,27 @@ export async function startNapCatQQ(
       runtime.log(`[NapCat] Screen error: ${err.message}`);
     });
 
-    // Wait for screen to create the session
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Wait for screen to create the session and get the PID
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    // Get the screen session PID
+    let screenPid: number | undefined;
+    try {
+      const { stdout: pidOut } = await runExec("screen", ["-ls"], 3000);
+      const pidMatch = pidOut.match(new RegExp(`${screenName}\\s+\\(Detached\\)\\s+(\\d+)\\.`));
+      if (pidMatch) {
+        screenPid = parseInt(pidMatch[1], 10);
+        runtime.log(`[NapCat] Screen session PID: ${screenPid}`);
+      }
+    } catch {
+      // Ignore PID detection errors
+    }
 
     napcatProcess = null; // Screen manages the process, not us
     capturedQRCode = null;
 
-    // Tail the log file to capture QR code
-    const tailProcess = spawn("tail", ["-n", "0", "-f", outLog], {
+    // Tail both log files to capture output including QR code
+    const tailProcess = spawn("tail", ["-n", "0", "-f", outLog, errLog], {
       stdio: ["ignore", "pipe", "ignore"],
     });
 
@@ -955,9 +968,21 @@ export async function startNapCatQQ(
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        const qrMatch = trimmed.match(/二维码解码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/);
-        if (qrMatch && qrMatch[1]) {
-          capturedQRCode = qrMatch[1];
+        // Multiple QR code patterns to capture
+        const qrPatterns = [
+          /二维码解码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/,
+          /二维码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/,
+          /QRCode:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/,
+          /(https:\/\/txz\.qq\.com\/[^\s]+)/, // Fallback: any txz.qq.com URL
+        ];
+
+        for (const pattern of qrPatterns) {
+          const qrMatch = trimmed.match(pattern);
+          if (qrMatch && qrMatch[1]) {
+            capturedQRCode = qrMatch[1];
+            runtime.log(`[NapCat] QR Code captured: ${qrMatch[1].substring(0, 50)}...`);
+            break;
+          }
         }
       }
     });
@@ -1006,7 +1031,7 @@ export async function startNapCatQQ(
       }
     } catch {}
 
-    return { ok: true, webuiToken, webuiPort, httpPort, wsPort };
+    return { ok: true, pid: screenPid, webuiToken, webuiPort, httpPort, wsPort };
   } catch (error) {
     return {
       ok: false,
