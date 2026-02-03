@@ -59,24 +59,24 @@ let capturedQRCode: string | null = null;
 export async function isPortAvailable(port: number): Promise<boolean> {
   try {
     const { spawn } = await import("node:child_process");
-    
+
     return new Promise((resolve) => {
       const proc = spawn("ss", ["-tln"], { stdio: ["ignore", "pipe", "ignore"] });
       let output = "";
-      
+
       proc.stdout?.on("data", (data) => {
         output += data.toString();
       });
-      
+
       proc.on("close", () => {
         const portInUse = output.includes(`:${port}`);
         resolve(!portInUse);
       });
-      
+
       proc.on("error", () => {
         resolve(true);
       });
-      
+
       setTimeout(() => {
         proc.kill();
         resolve(true);
@@ -126,8 +126,7 @@ function pickNapCatAsset(assets: ReleaseAsset[], platform: NodeJS.Platform) {
 
   if (platform === "linux" || platform === "darwin") {
     return (
-      byName(/shell\.zip$/) ||
-      withName.find((asset) => looksLikeArchive(asset.name.toLowerCase()))
+      byName(/shell\.zip$/) || withName.find((asset) => looksLikeArchive(asset.name.toLowerCase()))
     );
   }
 
@@ -196,13 +195,11 @@ async function detectPackageManager(): Promise<"apt" | "dnf" | null> {
   try {
     await runExec("which", ["apt-get"], 5000);
     return "apt";
-  } catch {
-  }
+  } catch {}
   try {
     await runExec("which", ["dnf"], 5000);
     return "dnf";
-  } catch {
-  }
+  } catch {}
   return null;
 }
 
@@ -250,8 +247,7 @@ async function installSystemDependencies(
         await runCommandWithTimeout(["sudo", "dnf", "install", "-y", "epel-release"], {
           timeoutMs: 60_000,
         });
-      } catch {
-      }
+      } catch {}
 
       const packages = [
         "zip",
@@ -457,7 +453,8 @@ function generateWebUIConfig(): { host: string; port: number; token: string; log
   return {
     host: "0.0.0.0",
     port: 6099,
-    token: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
+    token:
+      Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
     loginRate: 3,
   };
 }
@@ -492,7 +489,8 @@ export async function installNapCatQQ(
   if (os.platform() !== "linux") {
     return {
       ok: false,
-      error: "Full NapCatQQ installation is only supported on Linux. On other platforms, please install NapCatQQ manually.",
+      error:
+        "Full NapCatQQ installation is only supported on Linux. On other platforms, please install NapCatQQ manually.",
     };
   }
 
@@ -586,8 +584,7 @@ export async function installNapCatQQ(
   } finally {
     try {
       await fs.rm(tmpDir, { recursive: true, force: true });
-    } catch {
-    }
+    } catch {}
   }
 }
 
@@ -613,11 +610,9 @@ export async function detectNapCatQQ(_runtime?: RuntimeEnv): Promise<string | nu
         if (launcher.installPath && (await fileExists(launcher.installPath))) {
           return launcher.installPath;
         }
-      } catch {
-      }
+      } catch {}
     }
-  } catch {
-  }
+  } catch {}
 
   const systemPaths = [
     "/usr/local/bin/napcat",
@@ -655,26 +650,24 @@ export async function getNapCatStatus(_runtime?: RuntimeEnv): Promise<NapCatStat
       status.running = true;
       status.pid = parseInt(stdout.split("\n")[0].trim(), 10);
     }
-  } catch {
-  }
+  } catch {}
 
   return status;
 }
 
 export async function killExistingNapCat(): Promise<void> {
   const processesToKill = [
-    "qq",           // QQ process
-    "xvfb-run",     // X11 virtual framebuffer
-    "Xvfb",         // X virtual framebuffer
-    "napcat",       // NapCat
+    "qq", // QQ process
+    "xvfb-run", // X11 virtual framebuffer
+    "Xvfb", // X virtual framebuffer
+    "napcat", // NapCat
   ];
-  
+
   try {
     for (const proc of processesToKill) {
       try {
         await runExec("pkill", ["-f", proc], 2000);
-      } catch {
-      }
+      } catch {}
     }
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -683,13 +676,11 @@ export async function killExistingNapCat(): Promise<void> {
       try {
         await runExec("pgrep", ["-f", proc], 1000);
         await runExec("pkill", ["-9", "-f", proc], 2000);
-      } catch {
-      }
+      } catch {}
     }
-    
+
     capturedQRCode = null;
-  } catch {
-  }
+  } catch {}
 }
 
 export async function startNapCatQQ(
@@ -698,7 +689,15 @@ export async function startNapCatQQ(
     qqNumber?: string;
     killExisting?: boolean;
   },
-): Promise<{ ok: boolean; pid?: number; webuiToken?: string; webuiPort?: number; httpPort?: number; wsPort?: number; error?: string }> {
+): Promise<{
+  ok: boolean;
+  pid?: number;
+  webuiToken?: string;
+  webuiPort?: number;
+  httpPort?: number;
+  wsPort?: number;
+  error?: string;
+}> {
   const installPath = await detectNapCatQQ(runtime);
   if (!installPath) {
     return {
@@ -717,51 +716,74 @@ export async function startNapCatQQ(
     let wsPort = napCatConfig?.wsPort ?? 3001;
 
     const availablePorts = await findAvailablePorts(httpPort, wsPort);
-    
+
     if (availablePorts.httpPort !== httpPort || availablePorts.wsPort !== wsPort) {
-      runtime.log(`Ports ${httpPort}/${wsPort} in use, using ${availablePorts.httpPort}/${availablePorts.wsPort} instead`);
-      
+      runtime.log(
+        `Ports ${httpPort}/${wsPort} in use, using ${availablePorts.httpPort}/${availablePorts.wsPort} instead`,
+      );
+
       const { updateNapCatConfig } = await import("./napcat-install.js");
       await updateNapCatConfig({
         httpPort: availablePorts.httpPort,
         wsPort: availablePorts.wsPort,
       });
-      
+
       httpPort = availablePorts.httpPort;
       wsPort = availablePorts.wsPort;
     }
 
     const { spawn } = await import("node:child_process");
 
-    const args = ["-a", QQ_EXECUTABLE, "--no-sandbox"];
+    const hasDisplay = process.env.DISPLAY !== undefined && process.env.DISPLAY !== "";
+
+    if (!hasDisplay) {
+      try {
+        await runExec("which", ["xvfb-run"], 5000);
+      } catch {
+        return {
+          ok: false,
+          error:
+            "xvfb-run not found. Linux QQ requires a display server.\n" +
+            "Please either:\n" +
+            "  1. Install xvfb: sudo apt-get install xvfb (Debian/Ubuntu) or sudo dnf install xorg-x11-server-Xvfb (RHEL/CentOS)\n" +
+            "  2. Or run 'openclaw onboard qq' which will auto-install dependencies\n" +
+            "  3. Or connect via SSH with X11 forwarding (ssh -X)",
+        };
+      }
+    }
+
+    const args = hasDisplay
+      ? [QQ_EXECUTABLE, "--no-sandbox"]
+      : ["-a", QQ_EXECUTABLE, "--no-sandbox"];
     if (options?.qqNumber) {
       args.push("-q", options.qqNumber);
     }
 
-    const child = spawn("xvfb-run", args, {
-      detached: true, // Detached so it survives parent exit
+    const spawnCommand = hasDisplay ? QQ_EXECUTABLE : "xvfb-run";
+    const child = spawn(spawnCommand, args, {
+      detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
-        DISPLAY: ":99",
+        ...(hasDisplay ? {} : { DISPLAY: ":99" }),
       },
     });
-    
+
     child.unref();
 
     napcatProcess = child;
-    
+
     capturedQRCode = null;
 
     let logLines = 0;
     child.stdout?.on("data", (data) => {
       const line = data.toString().trim();
-      
+
       const qrMatch = line.match(/二维码解码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/);
       if (qrMatch && qrMatch[1]) {
         capturedQRCode = qrMatch[1];
       }
-      
+
       if (line && logLines < 20) {
         logLines++;
         runtime.log(`[napcat] ${line.substring(0, 200)}`);
@@ -770,12 +792,12 @@ export async function startNapCatQQ(
 
     child.stderr?.on("data", (data) => {
       const line = data.toString().trim();
-      
+
       const qrMatch = line.match(/二维码解码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/);
       if (qrMatch && qrMatch[1]) {
         capturedQRCode = qrMatch[1];
       }
-      
+
       if (line && logLines < 20) {
         logLines++;
         runtime.log(`[napcat:err] ${line.substring(0, 200)}`);
@@ -805,8 +827,7 @@ export async function startNapCatQQ(
         webuiToken = config.token;
         webuiPort = config.port || 6099;
       }
-    } catch {
-    }
+    } catch {}
 
     return { ok: true, pid: child.pid, webuiToken, webuiPort, httpPort, wsPort };
   } catch (error) {
@@ -817,17 +838,18 @@ export async function startNapCatQQ(
   }
 }
 
-export async function stopNapCatQQ(_runtime?: RuntimeEnv): Promise<{ ok: boolean; error?: string }> {
+export async function stopNapCatQQ(
+  _runtime?: RuntimeEnv,
+): Promise<{ ok: boolean; error?: string }> {
   if (napcatProcess && !napcatProcess.killed) {
     try {
       napcatProcess.kill("SIGTERM");
       await new Promise((resolve) => setTimeout(resolve, 2000));
-      
+
       if (!napcatProcess.killed) {
         napcatProcess.kill("SIGKILL");
       }
-    } catch {
-    }
+    } catch {}
     napcatProcess = null;
   }
 
@@ -899,9 +921,9 @@ export async function updateNapCatConfig(options: {
 }): Promise<boolean> {
   try {
     const configsToUpdate: string[] = [];
-    
+
     configsToUpdate.push(path.join(NAPCAT_CONFIG_DIR, "onebot11.json"));
-    
+
     if (options.qqNumber) {
       configsToUpdate.push(path.join(NAPCAT_CONFIG_DIR, `onebot11_${options.qqNumber}.json`));
     }
@@ -948,7 +970,7 @@ export async function updateNapCatConfig(options: {
 
       await fs.writeFile(onebotPath, JSON.stringify(updated, null, 2), "utf-8");
     }
-    
+
     return true;
   } catch {
     return false;
@@ -966,7 +988,9 @@ export async function checkNapCatLoginViaOneBot(
 
     const hasToken = accessToken && accessToken.trim().length > 0;
 
-    console.log(`[OneBot API] Checking login at port ${httpPort}, hasToken: ${hasToken}, token: ${accessToken ? accessToken.substring(0, 8) + "..." : "(none)"}`);
+    console.log(
+      `[OneBot API] Checking login at port ${httpPort}, hasToken: ${hasToken}, token: ${accessToken ? accessToken.substring(0, 8) + "..." : "(none)"}`,
+    );
 
     const url = `http://localhost:${httpPort}/get_login_info`;
     const headers: Record<string, string> = {
@@ -1009,7 +1033,10 @@ export async function checkNapCatLoginViaOneBot(
       };
     }
 
-    return { loggedIn: false, error: data.status === "failed" ? "Not logged in" : `retcode: ${data.retcode}` };
+    return {
+      loggedIn: false,
+      error: data.status === "failed" ? "Not logged in" : `retcode: ${data.retcode}`,
+    };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       return { loggedIn: false, error: "Request timeout" };
@@ -1033,7 +1060,7 @@ export async function checkNapCatLogin(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(webuiToken ? { "Authorization": `Bearer ${webuiToken}` } : {}),
+        ...(webuiToken ? { Authorization: `Bearer ${webuiToken}` } : {}),
       },
       signal: controller.signal,
     });
@@ -1083,7 +1110,7 @@ export async function getNapCatQQLoginInfo(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(webuiToken ? { "Authorization": `Bearer ${webuiToken}` } : {}),
+        ...(webuiToken ? { Authorization: `Bearer ${webuiToken}` } : {}),
       },
       signal: controller.signal,
     });
@@ -1133,7 +1160,7 @@ export async function getNapCatQRCode(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(webuiToken ? { "Authorization": `Bearer ${webuiToken}` } : {}),
+        ...(webuiToken ? { Authorization: `Bearer ${webuiToken}` } : {}),
       },
       signal: controller.signal,
     });
@@ -1168,14 +1195,16 @@ export async function waitForNapCatLogin(
   maxAttempts: number = 60,
   onAttempt?: (attempt: number, result: { loggedIn: boolean; error?: string }) => void,
 ): Promise<{ success: boolean; userId?: string; nickname?: string; error?: string }> {
-  console.log(`[waitForNapCatLogin] Starting poll on port ${httpPort}, token: ${accessToken ? accessToken.substring(0, 8) + "..." : "(none)"}`);
+  console.log(
+    `[waitForNapCatLogin] Starting poll on port ${httpPort}, token: ${accessToken ? accessToken.substring(0, 8) + "..." : "(none)"}`,
+  );
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const result = await checkNapCatLoginViaOneBot(httpPort, accessToken);
-    
+
     if (onAttempt) {
       onAttempt(attempt + 1, result);
     }
-    
+
     if (result.loggedIn) {
       console.log(`[waitForNapCatLogin] Login detected at attempt ${attempt + 1}`);
       return {
@@ -1202,7 +1231,7 @@ export async function checkNapCatWebUI(
 
     const response = await fetch(`http://localhost:${webuiPort}/api/test`, {
       method: "GET",
-      ...(webuiToken && { headers: { "Authorization": `Bearer ${webuiToken}` } }),
+      ...(webuiToken && { headers: { Authorization: `Bearer ${webuiToken}` } }),
       signal: controller.signal,
     });
     clearTimeout(timeout);
