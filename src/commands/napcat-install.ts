@@ -770,9 +770,17 @@ export async function startNapCatQQ(
       spawnArgs = ["xvfb-run", ...args];
     }
 
+    const logDir = path.join(os.homedir(), ".openclaw", "logs");
+    await fs.mkdir(logDir, { recursive: true });
+    const stdoutLog = path.join(logDir, "napcat.stdout.log");
+    const stderrLog = path.join(logDir, "napcat.stderr.log");
+
+    const outFd = await fs.open(stdoutLog, "a");
+    const errFd = await fs.open(stderrLog, "a");
+
     const child = spawn(spawnCommand, spawnArgs, {
       detached: false,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", outFd.fd, errFd.fd],
       env: {
         ...process.env,
         ...(hasDisplay ? {} : { DISPLAY: ":99" }),
@@ -780,39 +788,38 @@ export async function startNapCatQQ(
     });
 
     child.unref();
+    outFd.close().catch(() => {});
+    errFd.close().catch(() => {});
 
     napcatProcess = child;
 
     capturedQRCode = null;
 
     let logLines = 0;
-    child.stdout?.on("data", (data) => {
-      const line = data.toString().trim();
+    const tailProcess = spawn("tail", ["-n", "50", "-f", stdoutLog], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    tailProcess.stdout?.on("data", (data) => {
+      const lines = data.toString().split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
 
-      const qrMatch = line.match(/二维码解码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/);
-      if (qrMatch && qrMatch[1]) {
-        capturedQRCode = qrMatch[1];
-      }
+        const qrMatch = trimmed.match(/二维码解码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/);
+        if (qrMatch && qrMatch[1]) {
+          capturedQRCode = qrMatch[1];
+        }
 
-      if (line && logLines < 20) {
-        logLines++;
-        runtime.log(`[napcat] ${line.substring(0, 200)}`);
+        if (logLines < 20) {
+          logLines++;
+          runtime.log(`[napcat] ${trimmed.substring(0, 200)}`);
+        }
       }
     });
 
-    child.stderr?.on("data", (data) => {
-      const line = data.toString().trim();
-
-      const qrMatch = line.match(/二维码解码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/);
-      if (qrMatch && qrMatch[1]) {
-        capturedQRCode = qrMatch[1];
-      }
-
-      if (line && logLines < 20) {
-        logLines++;
-        runtime.log(`[napcat:err] ${line.substring(0, 200)}`);
-      }
-    });
+    setTimeout(() => {
+      tailProcess.kill();
+    }, 30000);
 
     await new Promise((resolve) => setTimeout(resolve, 8000));
 
