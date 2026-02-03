@@ -764,22 +764,16 @@ export async function startNapCatQQ(
     const stdoutLog = path.join(logDir, "napcat.stdout.log");
     const stderrLog = path.join(logDir, "napcat.stderr.log");
 
-    const actualCommand = hasDisplay ? args[0] : "xvfb-run";
-    const actualArgs = hasDisplay ? args.slice(1) : [...args];
+    const outFd = await fs.open(stdoutLog, "a");
+    const errFd = await fs.open(stderrLog, "a");
 
-    const scriptContent = `#!/bin/bash
-# NapCat Launcher Script
-exec > >(tee -a "${stdoutLog}") 2> >(tee -a "${stderrLog}" >&2)
-cd "${NAPCAT_BASE_DIR}" || exit 1
-export DISPLAY=:99
-exec ${actualCommand} ${actualArgs.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ")}
-`;
-    const scriptPath = path.join(os.homedir(), ".openclaw", "napcat-launcher.sh");
-    await fs.writeFile(scriptPath, scriptContent, { mode: 0o755 });
+    const spawnCommand = hasDisplay ? args[0] : "xvfb-run";
+    const spawnArgs = hasDisplay ? args.slice(1) : [...args];
 
-    const child = spawn("nohup", [scriptPath], {
+    const child = spawn(spawnCommand, spawnArgs, {
       detached: true,
-      stdio: ["ignore", "ignore", "ignore"],
+      stdio: ["ignore", outFd.fd, errFd.fd],
+      cwd: NAPCAT_BASE_DIR,
       env: {
         ...process.env,
         DISPLAY: ":99",
@@ -787,6 +781,8 @@ exec ${actualCommand} ${actualArgs.map((a) => `"${a.replace(/"/g, '\\"')}"`).joi
     });
 
     child.unref();
+    await outFd.close().catch(() => {});
+    await errFd.close().catch(() => {});
 
     napcatProcess = child;
 
