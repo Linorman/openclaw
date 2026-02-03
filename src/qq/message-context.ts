@@ -39,24 +39,29 @@ function resolveQQPeerId(event: QQMessageEvent): { peerId: string; isGroup: bool
   };
 }
 
-function extractTextFromMessage(message: string | Array<{ type: string; data?: Record<string, unknown> }>): string {
+function extractTextFromMessage(
+  message: string | Array<{ type: string; data?: Record<string, unknown> }>,
+): string {
   if (typeof message === "string") {
     return message;
   }
-  
+
   return message
-    .filter((seg): seg is { type: string; data: Record<string, unknown> } => 
-      seg.type === "text" && typeof seg.data === "object" && seg.data !== null
+    .filter(
+      (seg): seg is { type: string; data: Record<string, unknown> } =>
+        seg.type === "text" && typeof seg.data === "object" && seg.data !== null,
     )
-    .map((seg) => String(seg.data.text ?? ""))
+    .map((seg) => String(typeof seg.data.text === "string" ? seg.data.text : ""))
     .join("");
 }
 
-function extractReplyToId(message: Array<{ type: string; data?: Record<string, unknown> }>): string | undefined {
+function extractReplyToId(
+  message: Array<{ type: string; data?: Record<string, unknown> }>,
+): string | undefined {
   const replySegment = message.find((seg) => seg.type === "reply");
   if (replySegment && typeof replySegment.data === "object" && replySegment.data !== null) {
     const id = replySegment.data.id;
-    if (id !== undefined && id !== null) {
+    if (typeof id === "string" || typeof id === "number") {
       return String(id);
     }
   }
@@ -67,7 +72,7 @@ export function parseQQInboundMessage(event: QQMessageEvent, accountId: string):
   const { peerId, isGroup } = resolveQQPeerId(event);
   const text = extractTextFromMessage(event.message);
   const replyToId = Array.isArray(event.message) ? extractReplyToId(event.message) : undefined;
-  
+
   return {
     channel: "qq",
     accountId,
@@ -91,22 +96,22 @@ export async function buildQQMessageContext(params: {
   accountId: string;
 }): Promise<QQMessageContext | null> {
   const { message, cfg, accountId } = params;
-  
+
   const isGroup = message.chatType === "group";
   const peerKind = isGroup ? "group" : "dm";
-  
+
   const route = resolveAgentRoute({
     cfg,
     channel: "qq",
     accountId,
     peer: { kind: peerKind, id: message.peerId },
   });
-  
+
   const threadKeys = isGroup
     ? resolveThreadSessionKeys({ baseSessionKey: route.sessionKey, threadId: message.groupId })
     : null;
   const sessionKey = threadKeys?.sessionKey ?? route.sessionKey;
-  
+
   const ctxPayload: MsgContext = {
     Body: message.text,
     BodyForAgent: message.text,
@@ -127,10 +132,10 @@ export async function buildQQMessageContext(params: {
     Surface: "qq",
     ChatType: isGroup ? "group" : "direct",
   };
-  
+
   // Prefix chatId to distinguish between private and group chats
   const chatId = isGroup ? `group:${message.peerId}` : `user:${message.senderId}`;
-  
+
   return {
     ctxPayload,
     route,
