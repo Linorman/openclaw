@@ -759,9 +759,19 @@ export async function startNapCatQQ(
       args.push("-q", options.qqNumber);
     }
 
-    const spawnCommand = hasDisplay ? QQ_EXECUTABLE : "xvfb-run";
-    const child = spawn(spawnCommand, args, {
-      detached: true,
+    let spawnCommand: string;
+    let spawnArgs: string[];
+
+    if (hasDisplay) {
+      spawnCommand = "setsid";
+      spawnArgs = [args[0], ...args.slice(1)];
+    } else {
+      spawnCommand = "setsid";
+      spawnArgs = ["xvfb-run", ...args];
+    }
+
+    const child = spawn(spawnCommand, spawnArgs, {
+      detached: false,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
