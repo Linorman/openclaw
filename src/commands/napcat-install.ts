@@ -807,7 +807,33 @@ export async function startNapCatQQ(
     napcatProcess = child;
     capturedQRCode = null;
 
+    const tailProcess = spawn("tail", ["-n", "0", "-f", outLog], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+
+    let logLines = 0;
+    tailProcess.stdout?.on("data", (data) => {
+      const lines = data.toString().split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const qrMatch = trimmed.match(/二维码解码URL:\s*(https:\/\/txz\.qq\.com\/[^\s]+)/);
+        if (qrMatch && qrMatch[1]) {
+          capturedQRCode = qrMatch[1];
+          runtime.log(`[napcat] QR Code captured: ${qrMatch[1].substring(0, 50)}...`);
+        }
+
+        if (logLines < 30) {
+          logLines++;
+          runtime.log(`[napcat] ${trimmed.substring(0, 200)}`);
+        }
+      }
+    });
+
     await new Promise((resolve) => setTimeout(resolve, 15000));
+
+    tailProcess.kill();
 
     let qqRunning = false;
     let lastProcessList = "";
