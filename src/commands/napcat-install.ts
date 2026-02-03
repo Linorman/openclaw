@@ -759,16 +759,56 @@ export async function startNapCatQQ(
     // Always use xvfb-run for NapCat (recommended for server environments)
     // NapCat typically runs on servers without displays, and xvfb provides
     // a virtual display for QQ's Electron-based UI
-    const xvfbAvailable = await checkXvfbRunAvailable();
+    let xvfbAvailable = await checkXvfbRunAvailable();
+
+    // Auto-install xvfb if not available
     if (!xvfbAvailable) {
-      return {
-        ok: false,
-        error:
-          "xvfb-run not found. NapCatQQ requires xvfb to run.\n" +
-          "Please either:\n" +
-          "  1. Install xvfb: sudo apt-get install xvfb (Debian/Ubuntu) or sudo dnf install xorg-x11-server-Xvfb (RHEL/CentOS)\n" +
-          "  2. Or run 'openclaw onboard qq' which will auto-install dependencies",
-      };
+      runtime.log("[NapCat] xvfb-run not found, attempting to install xvfb...");
+
+      const packageManager = await detectPackageManager();
+      if (!packageManager) {
+        return {
+          ok: false,
+          error:
+            "xvfb-run not found and no supported package manager detected.\n" +
+            "Please install xvfb manually:\n" +
+            "  - Debian/Ubuntu: sudo apt-get install xvfb\n" +
+            "  - RHEL/CentOS: sudo dnf install xorg-x11-server-Xvfb",
+        };
+      }
+
+      // Install just xvfb (not all dependencies to save time)
+      try {
+        runtime.log(`[NapCat] Installing xvfb using ${packageManager}...`);
+        if (packageManager === "apt") {
+          await runCommandWithTimeout(["sudo", "apt-get", "update", "-y", "-qq"], {
+            timeoutMs: 60_000,
+          });
+          await runCommandWithTimeout(["sudo", "apt-get", "install", "-y", "-qq", "xvfb"], {
+            timeoutMs: 120_000,
+          });
+        } else if (packageManager === "dnf") {
+          await runCommandWithTimeout(["sudo", "dnf", "install", "-y", "xorg-x11-server-Xvfb"], {
+            timeoutMs: 120_000,
+          });
+        }
+
+        // Check again if xvfb is now available
+        xvfbAvailable = await checkXvfbRunAvailable();
+        if (!xvfbAvailable) {
+          throw new Error("xvfb installation completed but xvfb-run is still not available");
+        }
+        runtime.log("[NapCat] xvfb installed successfully");
+      } catch (installError) {
+        return {
+          ok: false,
+          error:
+            `Failed to auto-install xvfb: ${installError instanceof Error ? installError.message : String(installError)}\n` +
+            "Please install xvfb manually:\n" +
+            "  - Debian/Ubuntu: sudo apt-get install xvfb\n" +
+            "  - RHEL/CentOS: sudo dnf install xorg-x11-server-Xvfb",
+        };
+      }
     }
 
     // Chromium/Electron flags for headless/virtual display environment
