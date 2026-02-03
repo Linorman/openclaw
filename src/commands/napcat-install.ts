@@ -1267,6 +1267,109 @@ export async function checkNapCatWebUI(
   }
 }
 
+// NapCat Quick Login API functions
+// Based on NapCat WebUI API from https://github.com/NapNeko/NapCatQQ
+
+export interface QuickLoginItem {
+  uin: string;
+  uid: string;
+  nickName: string;
+  faceUrl: string;
+  facePath: string;
+  loginType: 1;
+  isQuickLogin: boolean;
+  isAutoLogin: boolean;
+}
+
+export async function getNapCatQuickLoginList(
+  webuiPort: number = 6099,
+  webuiToken?: string,
+): Promise<{ success: boolean; list?: QuickLoginItem[]; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(`http://localhost:${webuiPort}/api/QQLogin/GetQuickLoginList`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(webuiToken ? { Authorization: `Bearer ${webuiToken}` } : {}),
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}` };
+    }
+
+    const data = (await response.json()) as {
+      data?: QuickLoginItem[];
+      message?: string;
+    };
+
+    if (data.data && Array.isArray(data.data)) {
+      return { success: true, list: data.data };
+    }
+
+    return { success: false, error: data.message || "No quick login list available" };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return { success: false, error: "Request timeout" };
+    }
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function setNapCatQuickLogin(
+  uin: string,
+  webuiPort: number = 6099,
+  webuiToken?: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(`http://localhost:${webuiPort}/api/QQLogin/SetQuickLogin`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(webuiToken ? { Authorization: `Bearer ${webuiToken}` } : {}),
+      },
+      body: JSON.stringify({ uin }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}` };
+    }
+
+    const data = (await response.json()) as {
+      data?: null;
+      message?: string;
+    };
+
+    // If no error message, assume success
+    if (!data.message) {
+      return { success: true };
+    }
+
+    return { success: false, error: data.message };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return { success: false, error: "Request timeout" };
+    }
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 process.on("exit", () => {
   if (napcatProcess && !napcatProcess.killed) {
     napcatProcess.kill("SIGKILL");

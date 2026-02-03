@@ -19,11 +19,18 @@ import {
   buildQQMessageContext,
   dispatchQQMessage,
   parseQQInboundMessage,
+  getNapCatQuickLoginList,
+  setNapCatQuickLogin,
+  readNapCatConfig,
+  startNapCatQQ,
+  stopNapCatQQ,
+  getNapCatStatus,
   type ChannelPlugin,
   type OpenClawConfig,
   type ResolvedQQAccount,
   type QQEvent,
   type QQMessageEvent,
+  type QuickLoginItem,
 } from "openclaw/plugin-sdk";
 
 import { QQConfigSchema } from "./config-schema.js";
@@ -289,6 +296,22 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
       
       ctx.log?.info(`[${account.accountId}] starting QQ provider`);
       
+      // Check if NapCat/QQ is already running, start it if not
+      const napcatStatus = await getNapCatStatus();
+      if (!napcatStatus.running) {
+        ctx.log?.info(`[${account.accountId}] NapCat not running, starting it...`);
+        const startResult = await startNapCatQQ(ctx.runtime, { killExisting: true });
+        if (!startResult.ok) {
+          throw new Error(`Failed to start NapCat: ${startResult.error || "Unknown error"}`);
+        }
+        ctx.log?.info(`[${account.accountId}] NapCat started (ports: HTTP ${startResult.httpPort}, WS ${startResult.wsPort})`);
+        
+        // Wait for NapCat to fully initialize
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      } else {
+        ctx.log?.info(`[${account.accountId}] NapCat already running (PID: ${napcatStatus.pid})`);
+      }
+      
       const probe = await probeQQ(account, 2500);
       let botLabel = "";
       if (probe.ok) {
@@ -333,6 +356,85 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
           ctx.log?.error(`[${account.accountId}] QQ WebSocket error: ${error.message}`);
         },
       });
+    },
+    stopAccount: async (ctx) => {
+      ctx.log?.info(`[${ctx.accountId}] stopping QQ provider`);
+      await stopNapCatQQ(ctx.runtime);
+      ctx.log?.info(`[${ctx.accountId}] QQ provider stopped`);
+    },
+    loginWithQrStart: async (params) => {
+      const napCatConfig = await readNapCatConfig(params.accountId);
+      if (!napCatConfig?.webuiPort) {
+        return {
+          message: "NapCat WebUI not configured. Please run onboarding first.",
+        };
+      }
+
+      const webuiPort = napCatConfig.webuiPort;
+      const webuiToken = napCatConfig.webuiToken;
+
+      // Try to get quick login list
+      const quickLoginResult = await getNapCatQuickLoginList(webuiPort, webuiToken);
+      
+      if (quickLoginResult.success && quickLoginResult.list && quickLoginResult.list.length > 0) {
+        // Find the first account that supports quick login
+        const quickLoginAccount = quickLoginResult.list.find((item: QuickLoginItem) => item.isQuickLogin);
+        
+        if (quickLoginAccount) {
+          // Attempt quick login
+          const loginResult = await setNapCatQuickLogin(quickLoginAccount.uin, webuiPort, webuiToken);
+          
+          if (loginResult.success) {
+            return {
+              message: `Quick login initiated for QQ ${quickLoginAccount.uin} (${quickLoginAccount.nickName}). Waiting for login to complete...`,
+            };
+          }
+        }
+      }
+
+      // If quick login is not available, fall back to QR code
+      return {
+        message: "No quick login available. Please use NapCat WebUI to scan QR code for login.",
+      };
+    },
+    loginWithQrWait: async (params) => {
+      const napCatConfig = await readNapCatConfig(params.accountId);
+      if (!napCatConfig?.httpPort) {
+        return {
+          connected: false,
+          message: "NapCat HTTP API not configured. Please run onboarding first.",
+        };
+      }
+
+      const httpPort = napCatConfig.httpPort;
+      const accessToken = napCatConfig.httpToken;
+
+      // Poll for login status via OneBot API
+      const maxAttempts = params.timeoutMs ? Math.ceil(params.timeoutMs / 3000) : 60;
+      
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const probe = await probeQQ(
+          resolveQQAccount({
+            cfg: getQQRuntime().config.loadConfig(),
+            accountId: params.accountId ?? undefined,
+          }),
+          5000,
+        );
+
+        if (probe.ok && probe.status === "online") {
+          return {
+            connected: true,
+            message: `QQ logged in successfully as ${probe.nickname} (${probe.selfId})`,
+          };
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+
+      return {
+        connected: false,
+        message: "Timeout waiting for QQ login. Please check NapCat WebUI for QR code.",
+      };
     },
     logoutAccount: async ({ accountId, cfg }) => {
       const nextCfg = { ...cfg } as OpenClawConfig;

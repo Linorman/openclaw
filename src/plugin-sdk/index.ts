@@ -388,11 +388,23 @@ export {
   type QQMessageContext,
 } from "../qq/message-context.js";
 export { dispatchQQMessage, handleQQInboundMessage } from "../qq/message-dispatch.js";
-export type { QQEvent, QQMessageEvent, QQInboundMessage, QQMessageSegment, QQChatType } from "../qq/types.js";
+export type {
+  QQEvent,
+  QQMessageEvent,
+  QQInboundMessage,
+  QQMessageSegment,
+  QQChatType,
+} from "../qq/types.js";
 export { qqOnboardingAdapter } from "../channels/plugins/onboarding/qq.js";
 export {
   installNapCatQQ,
   detectNapCatQQ,
   startNapCatQQ,
+  stopNapCatQQ,
+  getNapCatStatus,
+  getNapCatQuickLoginList,
+  setNapCatQuickLogin,
+  readNapCatConfig,
   type NapCatInstallResult,
+  type QuickLoginItem,
 } from "../commands/napcat-install.js";
