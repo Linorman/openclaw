@@ -759,43 +759,43 @@ export async function startNapCatQQ(
       args.push("-q", options.qqNumber);
     }
 
-    let spawnCommand: string;
-    let spawnArgs: string[];
-
-    if (hasDisplay) {
-      spawnCommand = "setsid";
-      spawnArgs = [args[0], ...args.slice(1)];
-    } else {
-      spawnCommand = "setsid";
-      spawnArgs = ["xvfb-run", ...args];
-    }
-
     const logDir = path.join(os.homedir(), ".openclaw", "logs");
     await fs.mkdir(logDir, { recursive: true });
     const stdoutLog = path.join(logDir, "napcat.stdout.log");
     const stderrLog = path.join(logDir, "napcat.stderr.log");
 
-    const outFd = await fs.open(stdoutLog, "a");
-    const errFd = await fs.open(stderrLog, "a");
+    const actualCommand = hasDisplay ? args[0] : "xvfb-run";
+    const actualArgs = hasDisplay ? args.slice(1) : [...args];
 
-    const child = spawn(spawnCommand, spawnArgs, {
-      detached: false,
-      stdio: ["ignore", outFd.fd, errFd.fd],
+    const scriptContent = `#!/bin/bash
+# NapCat Launcher Script
+exec > >(tee -a "${stdoutLog}") 2> >(tee -a "${stderrLog}" >&2)
+cd "${NAPCAT_BASE_DIR}" || exit 1
+export DISPLAY=:99
+exec ${actualCommand} ${actualArgs.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ")}
+`;
+    const scriptPath = path.join(os.homedir(), ".openclaw", "napcat-launcher.sh");
+    await fs.writeFile(scriptPath, scriptContent, { mode: 0o755 });
+
+    const child = spawn("nohup", [scriptPath], {
+      detached: true,
+      stdio: ["ignore", "ignore", "ignore"],
       env: {
         ...process.env,
-        ...(hasDisplay ? {} : { DISPLAY: ":99" }),
+        DISPLAY: ":99",
       },
     });
 
     child.unref();
-    outFd.close().catch(() => {});
-    errFd.close().catch(() => {});
 
     napcatProcess = child;
 
     capturedQRCode = null;
 
     let logLines = 0;
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
     const tailProcess = spawn("tail", ["-n", "50", "-f", stdoutLog], {
       stdio: ["ignore", "pipe", "ignore"],
     });
