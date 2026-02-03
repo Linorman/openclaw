@@ -995,10 +995,19 @@ export async function startNapCatQQ(
       }
     });
 
-    // Wait for NapCat to initialize (longer wait for screen-based startup)
-    await new Promise((resolve) => setTimeout(resolve, 15000));
+    // Wait for NapCat to initialize and QR code to appear
+    // QR code can take 20-30 seconds to generate
+    runtime.log("[NapCat] Waiting for QR code (up to 30s)...");
+    await new Promise((resolve) => setTimeout(resolve, 25000));
 
     tailProcess.kill();
+
+    // Check if we captured QR code
+    if (capturedQRCode) {
+      runtime.log(`[NapCat] QR code captured successfully`);
+    } else {
+      runtime.log(`[NapCat] QR code not captured yet, may appear later`);
+    }
 
     let qqRunning = false;
     for (let i = 0; i < 10; i++) {
