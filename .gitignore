@@ -71,3 +71,8 @@ USER.md
 
 # local tooling
 .serena/
+
+# QQ client databases (generated when running NapCat/QQ locally)
+*.db
+*.db-shm
+*.db-wal
