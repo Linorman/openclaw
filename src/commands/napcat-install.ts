@@ -762,6 +762,9 @@ export async function startNapCatQQ(
     const spawnCommand = hasDisplay ? args[0] : "xvfb-run";
     const spawnArgs = hasDisplay ? args.slice(1) : [...args];
 
+    runtime.log(`[napcat] Spawning: ${spawnCommand} ${spawnArgs.join(" ")}`);
+    runtime.log(`[napcat] Working directory: ${NAPCAT_BASE_DIR}`);
+
     const child = spawn(spawnCommand, spawnArgs, {
       detached: true,
       stdio: ["ignore", "ignore", "ignore"],
@@ -772,33 +775,49 @@ export async function startNapCatQQ(
       },
     });
 
+    runtime.log(`[napcat] Spawned PID: ${child.pid}`);
+
     child.unref();
 
     napcatProcess = child;
     capturedQRCode = null;
 
-    await new Promise((resolve) => setTimeout(resolve, 10000));
+    await new Promise((resolve) => setTimeout(resolve, 15000));
 
     let qqRunning = false;
-    for (let i = 0; i < 5; i++) {
+    let lastProcessList = "";
+
+    for (let i = 0; i < 10; i++) {
       try {
-        const { stdout } = await runExec("pgrep", ["-f", "qq"], 3000);
-        if (stdout.trim()) {
+        const { stdout: psOut } = await runExec("ps", ["aux"], 5000);
+        lastProcessList = psOut;
+
+        const qqProcesses = psOut
+          .split("\n")
+          .filter(
+            (line) => line.includes("qq") && !line.includes("grep") && !line.includes("ps aux"),
+          );
+
+        if (qqProcesses.length > 0) {
+          runtime.log(`[napcat] Found QQ processes:\n${qqProcesses.join("\n")}`);
           qqRunning = true;
           break;
         }
-      } catch {
-        // Not found yet
+      } catch (err) {
+        runtime.log(`[napcat] Process check error: ${err}`);
       }
+
       if (!qqRunning) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        runtime.log(`[napcat] QQ not found yet, retry ${i + 1}/10...`);
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
     }
 
     if (!qqRunning) {
+      runtime.log(`[napcat] Last process list:\n${lastProcessList}`);
       return {
         ok: false,
-        error: "NapCat QQ process not detected after starting",
+        error: "NapCat QQ process not detected after starting. Check logs for details.",
       };
     }
 
