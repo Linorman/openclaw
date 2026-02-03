@@ -761,40 +761,37 @@ export async function startNapCatQQ(
 
     const logDir = path.join(os.homedir(), ".openclaw", "logs");
     await fs.mkdir(logDir, { recursive: true });
-    const stdoutLog = path.join(logDir, "napcat.stdout.log");
-    const stderrLog = path.join(logDir, "napcat.stderr.log");
+    const napcatLog = path.join(logDir, "napcat.log");
 
-    const outFd = await fs.open(stdoutLog, "a");
-    const errFd = await fs.open(stderrLog, "a");
+    const launchCmd = hasDisplay
+      ? `"${args[0]}" ${args
+          .slice(1)
+          .map((a) => `"${a}"`)
+          .join(" ")}`
+      : `xvfb-run "${args[0]}" ${args
+          .slice(1)
+          .map((a) => `"${a}"`)
+          .join(" ")}`;
 
-    const spawnCommand = hasDisplay ? args[0] : "xvfb-run";
-    const spawnArgs = hasDisplay ? args.slice(1) : [...args];
+    const screenCmd = `screen -dmS napcat bash -c 'cd "${NAPCAT_BASE_DIR}" && export DISPLAY=:99 && ${launchCmd} 2>&1 | tee "${napcatLog}"'`;
 
-    const child = spawn(spawnCommand, spawnArgs, {
-      detached: true,
-      stdio: ["ignore", outFd.fd, errFd.fd],
-      cwd: NAPCAT_BASE_DIR,
-      env: {
-        ...process.env,
-        DISPLAY: ":99",
-      },
+    await new Promise<void>((resolve, reject) => {
+      const { exec } = require("node:child_process");
+      exec(screenCmd, (error: Error | null) => {
+        if (error) reject(error);
+        else resolve();
+      });
     });
-
-    child.unref();
-    await outFd.close().catch(() => {});
-    await errFd.close().catch(() => {});
-
-    napcatProcess = child;
 
     capturedQRCode = null;
-
     let logLines = 0;
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    const tailProcess = spawn("tail", ["-n", "50", "-f", stdoutLog], {
+    const tailProcess = spawn("tail", ["-n", "100", "-f", napcatLog], {
       stdio: ["ignore", "pipe", "ignore"],
     });
+
     tailProcess.stdout?.on("data", (data) => {
       const lines = data.toString().split("\n");
       for (const line of lines) {
@@ -817,19 +814,18 @@ export async function startNapCatQQ(
       tailProcess.kill();
     }, 30000);
 
-    await new Promise((resolve) => setTimeout(resolve, 10000));
+    await new Promise((resolve) => setTimeout(resolve, 8000));
 
-    // Check if QQ process is actually running by looking for it in process list
     let qqRunning = false;
     for (let i = 0; i < 5; i++) {
       try {
-        const { stdout } = await runExec("pgrep", ["-f", "qq.*napcat|napcat.*qq"], 3000);
+        const { stdout } = await runExec("pgrep", ["-f", "qq"], 3000);
         if (stdout.trim()) {
           qqRunning = true;
           break;
         }
       } catch {
-        // Process not found yet, wait and retry
+        // Not found yet
       }
       if (!qqRunning) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -855,7 +851,7 @@ export async function startNapCatQQ(
       }
     } catch {}
 
-    return { ok: true, pid: child.pid, webuiToken, webuiPort, httpPort, wsPort };
+    return { ok: true, webuiToken, webuiPort, httpPort, wsPort };
   } catch (error) {
     return {
       ok: false,
