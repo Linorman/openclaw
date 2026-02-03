@@ -19,4 +19,5 @@ export async function runInteractiveOnboarding(
     }
     throw err;
   }
+  runtime.exit(0);
 }
