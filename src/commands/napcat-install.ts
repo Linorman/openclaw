@@ -817,17 +817,30 @@ export async function startNapCatQQ(
       tailProcess.kill();
     }, 30000);
 
-    await new Promise((resolve) => setTimeout(resolve, 8000));
+    await new Promise((resolve) => setTimeout(resolve, 10000));
 
-    if (child.pid && !child.killed) {
+    // Check if QQ process is actually running by looking for it in process list
+    let qqRunning = false;
+    for (let i = 0; i < 5; i++) {
       try {
-        process.kill(child.pid, 0); // Check if process exists
+        const { stdout } = await runExec("pgrep", ["-f", "qq.*napcat|napcat.*qq"], 3000);
+        if (stdout.trim()) {
+          qqRunning = true;
+          break;
+        }
       } catch {
-        return {
-          ok: false,
-          error: "NapCat process exited after starting",
-        };
+        // Process not found yet, wait and retry
       }
+      if (!qqRunning) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+
+    if (!qqRunning) {
+      return {
+        ok: false,
+        error: "NapCat QQ process not detected after starting",
+      };
     }
 
     let webuiToken: string | undefined;
