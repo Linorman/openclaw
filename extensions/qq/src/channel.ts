@@ -39,6 +39,37 @@ import { getQQRuntime } from "./runtime.js";
 
 const meta = getChatChannelMeta("qq");
 
+/**
+ * Check if a TCP port is ready (accepting connections)
+ */
+async function checkPortReady(port: number, timeoutMs: number = 2000): Promise<boolean> {
+  try {
+    const { connect } = await import("node:net");
+    return new Promise((resolve) => {
+      const socket = connect(port, "127.0.0.1");
+      
+      const timer = setTimeout(() => {
+        socket.destroy();
+        resolve(false);
+      }, timeoutMs);
+      
+      socket.on("connect", () => {
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(true);
+      });
+      
+      socket.on("error", () => {
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(false);
+      });
+    });
+  } catch {
+    return false;
+  }
+}
+
 function parseReplyToMessageId(replyToId?: string | null): string | undefined {
   if (!replyToId) return undefined;
   return replyToId;
@@ -296,6 +327,10 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
       
       ctx.log?.info(`[${account.accountId}] starting QQ provider`);
       
+      // Extract WebSocket port from wsUrl
+      const wsPortMatch = account.wsUrl.match(/:(\d+)/);
+      const wsPort = wsPortMatch ? parseInt(wsPortMatch[1], 10) : 3001;
+      
       // Check if NapCat/QQ is already running, start it if not
       const napcatStatus = await getNapCatStatus();
       if (!napcatStatus.running) {
@@ -306,18 +341,39 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
         }
         ctx.log?.info(`[${account.accountId}] NapCat started (ports: HTTP ${startResult.httpPort}, WS ${startResult.wsPort})`);
         
-        // Wait for NapCat to fully initialize
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+        // Wait for NapCat to fully initialize - try to connect to WebSocket port
+        ctx.log?.info(`[${account.accountId}] Waiting for NapCat WebSocket port ${wsPort} to be ready...`);
+        let wsReady = false;
+        for (let attempt = 0; attempt < 30; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          wsReady = await checkPortReady(wsPort, 1000);
+          if (wsReady) {
+            ctx.log?.info(`[${account.accountId}] WebSocket port ${wsPort} is ready after ${attempt + 1}s`);
+            break;
+          }
+          if (attempt % 5 === 4) {
+            ctx.log?.info(`[${account.accountId}] Still waiting for WebSocket port... (${attempt + 1}s)`);
+          }
+        }
+        if (!wsReady) {
+          ctx.log?.warn(`[${account.accountId}] WebSocket port ${wsPort} not ready after 30s, proceeding anyway`);
+          ctx.log?.info(`[${account.accountId}] Check NapCat logs: ~/.openclaw/logs/napcat.{stdout,stderr}.log`);
+        }
       } else {
         ctx.log?.info(`[${account.accountId}] NapCat already running (PID: ${napcatStatus.pid})`);
       }
       
-      const probe = await probeQQ(account, 2500);
+      // Probe HTTP API to check login status
+      ctx.log?.info(`[${account.accountId}] Probing NapCat HTTP API...`);
+      const probe = await probeQQ(account, 5000);
       let botLabel = "";
       if (probe.ok) {
-        botLabel = ` (${probe.nickname})`;
+        botLabel = ` (${probe.nickname}, ${probe.status})`;
+        ctx.log?.info(`[${account.accountId}] NapCat login status: ${probe.status}`);
+      } else {
+        ctx.log?.warn(`[${account.accountId}] NapCat probe failed: ${probe.error}`);
       }
-      ctx.log?.info(`[${account.accountId}] QQ provider started${botLabel}`);
+      ctx.log?.info(`[${account.accountId}] QQ provider starting WebSocket connection${botLabel}`);
       
       return monitorQQProvider({
         account,

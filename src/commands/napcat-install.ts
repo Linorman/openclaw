@@ -768,8 +768,12 @@ export async function startNapCatQQ(
     const outLog = path.join(logDir, "napcat.stdout.log");
     const errLog = path.join(logDir, "napcat.stderr.log");
 
+    runtime.log(`[NapCat] Logs: ${outLog}, ${errLog}`);
+
     const outFd = await fs.open(outLog, "a");
     const errFd = await fs.open(errLog, "a");
+
+    runtime.log(`[NapCat] Spawning: ${spawnCommand} ${spawnArgs.join(" ")}`);
 
     const child = spawn(spawnCommand, spawnArgs, {
       detached: true,
@@ -781,8 +785,14 @@ export async function startNapCatQQ(
       },
     });
 
-    child.on("error", () => {});
-    child.on("exit", () => {});
+    runtime.log(`[NapCat] Spawned PID: ${child.pid}`);
+
+    child.on("error", (err) => {
+      runtime.log(`[NapCat] Process error: ${err.message}`);
+    });
+    child.on("exit", (code) => {
+      runtime.log(`[NapCat] Process exited with code: ${code}`);
+    });
 
     outFd.close().catch(() => {});
     errFd.close().catch(() => {});

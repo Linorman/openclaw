@@ -20,7 +20,7 @@ export type QQMonitorResult = {
 
 export function monitorQQProvider(options: QQMonitorOptions): QQMonitorResult {
   const { account, abortSignal, onEvent, onMessage, onError } = options;
-  
+
   const wsUrl = account.wsUrl;
   if (!wsUrl) {
     throw new Error("WebSocket URL not configured for QQ account");
@@ -39,6 +39,7 @@ export function monitorQQProvider(options: QQMonitorOptions): QQMonitorResult {
         headers["Authorization"] = `Bearer ${account.accessToken}`;
       }
 
+      console.log(`[qq:${account.accountId}] Connecting to WebSocket: ${wsUrl}`);
       ws = new WebSocket(wsUrl, { headers });
 
       ws.on("open", () => {
@@ -51,7 +52,7 @@ export function monitorQQProvider(options: QQMonitorOptions): QQMonitorResult {
             typeof data === "string" ? data : Buffer.from(data as Buffer).toString(),
           ) as QQEvent;
           await onEvent(event);
-          
+
           if (event.post_type === "message" && onMessage) {
             await onMessage(event as QQMessageEvent);
           }
@@ -60,17 +61,24 @@ export function monitorQQProvider(options: QQMonitorOptions): QQMonitorResult {
         }
       });
 
-      ws.on("close", (code) => {
+      ws.on("close", (code, reason) => {
+        const reasonStr = reason ? ` (reason: ${reason.toString()})` : "";
         if (!isClosing && !abortSignal.aborted) {
-          console.log(`[qq:${account.accountId}] WebSocket closed (${code}), reconnecting...`);
+          console.log(
+            `[qq:${account.accountId}] WebSocket closed (code: ${code})${reasonStr}, reconnecting in ${account.config.reconnectIntervalMs ?? 5000}ms...`,
+          );
           reconnectTimer = setTimeout(connect, account.config.reconnectIntervalMs ?? 5000);
+        } else {
+          console.log(`[qq:${account.accountId}] WebSocket closed (code: ${code})${reasonStr}`);
         }
       });
 
       ws.on("error", (error) => {
+        console.error(`[qq:${account.accountId}] WebSocket error: ${error.message}`);
         onError?.(error);
       });
     } catch (error) {
+      console.error(`[qq:${account.accountId}] Failed to create WebSocket:`, error);
       onError?.(error instanceof Error ? error : new Error(String(error)));
     }
   };
