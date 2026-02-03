@@ -759,25 +759,33 @@ export async function startNapCatQQ(
       args.push("-q", options.qqNumber);
     }
 
-    const spawnCommand = hasDisplay ? args[0] : "xvfb-run";
-    const spawnArgs = hasDisplay ? args.slice(1) : [...args];
+    const useXvfb = !hasDisplay;
+
+    runtime.log(`[napcat] Has display: ${hasDisplay}, use xvfb: ${useXvfb}`);
+    runtime.log(`[napcat] QQ_EXECUTABLE: ${QQ_EXECUTABLE}`);
+    runtime.log(`[napcat] NAPCAT_BASE_DIR: ${NAPCAT_BASE_DIR}`);
+
+    const spawnCommand = useXvfb ? "xvfb-run" : args[0];
+    const spawnArgs = useXvfb ? ["-a", args[0], ...args.slice(1)] : args.slice(1);
 
     runtime.log(`[napcat] Spawning: ${spawnCommand} ${spawnArgs.join(" ")}`);
     runtime.log(`[napcat] Working directory: ${NAPCAT_BASE_DIR}`);
 
     const logDir = path.join(os.homedir(), ".openclaw", "logs");
     await fs.mkdir(logDir, { recursive: true });
-    const errLog = path.join(logDir, "napcat.error.log");
+    const outLog = path.join(logDir, "napcat.stdout.log");
+    const errLog = path.join(logDir, "napcat.stderr.log");
 
+    const outFd = await fs.open(outLog, "a");
     const errFd = await fs.open(errLog, "a");
 
     const child = spawn(spawnCommand, spawnArgs, {
       detached: true,
-      stdio: ["ignore", "ignore", errFd.fd],
+      stdio: ["ignore", outFd.fd, errFd.fd],
       cwd: NAPCAT_BASE_DIR,
       env: {
         ...process.env,
-        DISPLAY: ":99",
+        ...(useXvfb ? { DISPLAY: ":99" } : {}),
       },
     });
 
@@ -791,6 +799,7 @@ export async function startNapCatQQ(
       runtime.log(`[napcat] Process exited with code ${code}, signal ${signal}`);
     });
 
+    outFd.close().catch(() => {});
     errFd.close().catch(() => {});
 
     child.unref();
@@ -833,10 +842,17 @@ export async function startNapCatQQ(
       runtime.log(`[napcat] Last process list:\n${lastProcessList}`);
 
       try {
-        const errContent = await fs.readFile(errLog, "utf-8");
-        runtime.log(`[napcat] Error log:\n${errContent || "(empty)"}`);
+        const outContent = await fs.readFile(outLog, "utf-8");
+        runtime.log(`[napcat] Stdout log:\n${outContent.slice(-2000) || "(empty)"}`);
       } catch {
-        runtime.log("[napcat] Could not read error log");
+        runtime.log("[napcat] Could not read stdout log");
+      }
+
+      try {
+        const errContent = await fs.readFile(errLog, "utf-8");
+        runtime.log(`[napcat] Stderr log:\n${errContent.slice(-2000) || "(empty)"}`);
+      } catch {
+        runtime.log("[napcat] Could not read stderr log");
       }
 
       return {
