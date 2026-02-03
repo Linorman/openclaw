@@ -78,6 +78,51 @@ async function checkXvfbRunAvailable(): Promise<boolean> {
   }
 }
 
+/**
+ * Check if screen is available, auto-install if not
+ */
+async function ensureScreenAvailable(runtime: RuntimeEnv): Promise<boolean> {
+  try {
+    // Check if screen is available
+    await runExec("which", ["screen"], 3000);
+    return true;
+  } catch {
+    // screen not found, try to install
+    runtime.log("[NapCat] screen not found, attempting to install...");
+
+    const packageManager = await detectPackageManager();
+    if (!packageManager) {
+      runtime.log("[NapCat] No supported package manager found for installing screen");
+      return false;
+    }
+
+    try {
+      if (packageManager === "apt") {
+        await runCommandWithTimeout(["sudo", "apt-get", "update", "-y", "-qq"], {
+          timeoutMs: 60_000,
+        });
+        await runCommandWithTimeout(["sudo", "apt-get", "install", "-y", "-qq", "screen"], {
+          timeoutMs: 60_000,
+        });
+      } else if (packageManager === "dnf") {
+        await runCommandWithTimeout(["sudo", "dnf", "install", "-y", "screen"], {
+          timeoutMs: 60_000,
+        });
+      }
+
+      // Verify installation
+      await runExec("which", ["screen"], 3000);
+      runtime.log("[NapCat] screen installed successfully");
+      return true;
+    } catch (installError) {
+      runtime.log(
+        `[NapCat] Failed to install screen: ${installError instanceof Error ? installError.message : String(installError)}`,
+      );
+      return false;
+    }
+  }
+}
+
 export async function isPortAvailable(port: number): Promise<boolean> {
   try {
     const { spawn } = await import("node:child_process");
@@ -809,6 +854,19 @@ export async function startNapCatQQ(
             "  - RHEL/CentOS: sudo dnf install xorg-x11-server-Xvfb",
         };
       }
+    }
+
+    // Ensure screen is available (required for background process management)
+    const screenAvailable = await ensureScreenAvailable(runtime);
+    if (!screenAvailable) {
+      return {
+        ok: false,
+        error:
+          "screen command not found and could not be auto-installed.\n" +
+          "Please install screen manually:\n" +
+          "  - Debian/Ubuntu: sudo apt-get install screen\n" +
+          "  - RHEL/CentOS: sudo dnf install screen",
+      };
     }
 
     // Chromium/Electron flags for headless/virtual display environment
