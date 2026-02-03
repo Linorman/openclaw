@@ -509,16 +509,27 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
       let qrDisplayed = false;
       let qrCode: string | undefined;
 
-      // First, check if we captured QR code from logs
-      const capturedQR = getCapturedNapCatQRCode();
-      if (capturedQR) {
-        qrCode = capturedQR;
-      } else {
+      // Poll for QR code (it may take some time to generate)
+      // Try for up to 30 seconds
+      for (let attempt = 0; attempt < 30; attempt++) {
+        // First, check if we captured QR code from logs
+        const capturedQR = getCapturedNapCatQRCode();
+        if (capturedQR) {
+          qrCode = capturedQR;
+          runtime?.log(`[QQ Onboarding] QR code captured from logs`);
+          break;
+        }
+
         // Fallback to WebUI API
         const qrResult = await getNapCatQRCode(webuiPort, webuiToken);
         if (qrResult.success && qrResult.qrCode) {
           qrCode = qrResult.qrCode;
+          runtime?.log(`[QQ Onboarding] QR code fetched from WebUI API`);
+          break;
         }
+
+        // Wait 1 second before next attempt
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
       if (qrCode) {

@@ -945,13 +945,21 @@ export async function startNapCatQQ(
     let screenPid: number | undefined;
     try {
       const { stdout: pidOut } = await runExec("screen", ["-ls"], 3000);
-      const pidMatch = pidOut.match(new RegExp(`${screenName}\\s+\\(Detached\\)\\s+(\\d+)\\.`));
+      runtime.log(`[NapCat] Screen list output: ${pidOut.substring(0, 200)}...`);
+      // Match patterns like: 12345.openclaw-napcat (Detached) or 12345.openclaw-napcat (Attached)
+      const pidMatch = pidOut.match(
+        new RegExp(`(\\d+)\\.${screenName}\\s+\\((?:Detached|Attached)\\)`),
+      );
       if (pidMatch) {
         screenPid = parseInt(pidMatch[1], 10);
         runtime.log(`[NapCat] Screen session PID: ${screenPid}`);
+      } else {
+        runtime.log(`[NapCat] Could not parse PID from screen output`);
       }
-    } catch {
-      // Ignore PID detection errors
+    } catch (err) {
+      runtime.log(
+        `[NapCat] Failed to get screen PID: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     napcatProcess = null; // Screen manages the process, not us
