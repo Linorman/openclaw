@@ -396,15 +396,46 @@ export type {
   QQChatType,
 } from "../qq/types.js";
 export { qqOnboardingAdapter } from "../channels/plugins/onboarding/qq.js";
+
+// NapCat Lifecycle (primary)
 export {
+  // Types
+  type NapCatInstallResult,
+  type NapCatStatus,
+  type NapCatStartResult,
+  type QuickLoginItem,
+  // Installation
   installNapCatQQ,
+  // Detection and status
   detectNapCatQQ,
+  getNapCatStatus,
+  // Lifecycle management
   startNapCatQQ,
   stopNapCatQQ,
-  getNapCatStatus,
+  killExistingNapCat,
+  // Configuration
+  readNapCatConfig,
+  updateNapCatConfig,
+  // QR Code
+  getCapturedQRCode,
+  resetQRCodeCapture,
+  waitForQRCode,
+  // Port management
+  isPortAvailable,
+  findAvailablePorts,
+  // Login API
+  checkNapCatLoginViaOneBot,
+  waitForNapCatLogin,
+  // Quick login API
   getNapCatQuickLoginList,
   setNapCatQuickLogin,
-  readNapCatConfig,
-  type NapCatInstallResult,
-  type QuickLoginItem,
+} from "../qq/napcat-lifecycle.js";
+
+// NapCat Install (backward compatibility - re-exports from lifecycle)
+export {
+  getNapCatQuickLoginList as getNapCatQuickLoginListLegacy,
+  setNapCatQuickLogin as setNapCatQuickLoginLegacy,
+  readNapCatConfig as readNapCatConfigLegacy,
+  type NapCatInstallResult as NapCatInstallResultLegacy,
+  type QuickLoginItem as QuickLoginItemLegacy,
 } from "../commands/napcat-install.js";

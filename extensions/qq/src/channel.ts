@@ -25,6 +25,7 @@ import {
   startNapCatQQ,
   stopNapCatQQ,
   getNapCatStatus,
+  checkNapCatLoginViaOneBot,
   type ChannelPlugin,
   type OpenClawConfig,
   type ResolvedQQAccount,
@@ -47,18 +48,18 @@ async function checkPortReady(port: number, timeoutMs: number = 2000): Promise<b
     const { connect } = await import("node:net");
     return new Promise((resolve) => {
       const socket = connect(port, "127.0.0.1");
-      
+
       const timer = setTimeout(() => {
         socket.destroy();
         resolve(false);
       }, timeoutMs);
-      
+
       socket.on("connect", () => {
         clearTimeout(timer);
         socket.destroy();
         resolve(true);
       });
-      
+
       socket.on("error", () => {
         clearTimeout(timer);
         socket.destroy();
@@ -209,7 +210,7 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
               channelKey: "qq",
             })
           : namedConfig;
-      
+
       const accountConfig = {
         enabled: true,
         ...(input.httpUrl ? { httpUrl: input.httpUrl } : {}),
@@ -217,7 +218,7 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
         ...(input.accessToken ? { accessToken: input.accessToken } : {}),
         ...(input.tokenFile ? { tokenFile: input.tokenFile } : {}),
       };
-      
+
       if (accountId === DEFAULT_ACCOUNT_ID) {
         return {
           ...next,
@@ -297,8 +298,7 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
       probe: snapshot.probe,
       lastProbeAt: snapshot.lastProbeAt ?? null,
     }),
-    probeAccount: async ({ account, timeoutMs }) =>
-      probeQQ(account, timeoutMs),
+    probeAccount: async ({ account, timeoutMs }) => probeQQ(account, timeoutMs),
     buildAccountSnapshot: ({ account, runtime, probe }) => {
       const configured = Boolean(account.httpUrl?.trim());
       return {
@@ -324,13 +324,13 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
       if (!account.wsUrl) {
         throw new Error("WebSocket URL required for QQ gateway");
       }
-      
+
       ctx.log?.info(`[${account.accountId}] starting QQ provider`);
-      
+
       // Extract WebSocket port from wsUrl
       const wsPortMatch = account.wsUrl.match(/:(\d+)/);
       const wsPort = wsPortMatch ? parseInt(wsPortMatch[1], 10) : 3001;
-      
+
       // Check if NapCat/QQ is already running, start it if not
       const napcatStatus = await getNapCatStatus();
       if (!napcatStatus.running) {
@@ -339,33 +339,35 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
         if (!startResult.ok) {
           throw new Error(`Failed to start NapCat: ${startResult.error || "Unknown error"}`);
         }
-        const pidInfo = startResult.pid ? ` (PID: ${startResult.pid})` : "";
-        ctx.log?.info(`[${account.accountId}] NapCat started${pidInfo} (ports: HTTP ${startResult.httpPort}, WS ${startResult.wsPort})`);
-        
-        // Wait for NapCat to fully initialize - try to connect to WebSocket port
-        ctx.log?.info(`[${account.accountId}] Waiting for NapCat WebSocket port ${wsPort} to be ready...`);
+        const pidInfo = startResult.pid ? ` (screen PID: ${startResult.pid})` : "";
+        ctx.log?.info(
+          `[${account.accountId}] NapCat started${pidInfo} (HTTP: ${startResult.httpPort}, WS: ${startResult.wsPort})`,
+        );
+
+        // Wait for NapCat to fully initialize
+        ctx.log?.info(`[${account.accountId}] Waiting for NapCat WebSocket port ${wsPort}...`);
         let wsReady = false;
         for (let attempt = 0; attempt < 30; attempt++) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
           wsReady = await checkPortReady(wsPort, 1000);
           if (wsReady) {
-            ctx.log?.info(`[${account.accountId}] WebSocket port ${wsPort} is ready after ${attempt + 1}s`);
+            ctx.log?.info(`[${account.accountId}] WebSocket port ${wsPort} ready after ${attempt + 1}s`);
             break;
           }
           if (attempt % 5 === 4) {
-            ctx.log?.info(`[${account.accountId}] Still waiting for WebSocket port... (${attempt + 1}s)`);
+            ctx.log?.info(`[${account.accountId}] Still waiting for WebSocket... (${attempt + 1}s)`);
           }
         }
         if (!wsReady) {
-          ctx.log?.warn(`[${account.accountId}] WebSocket port ${wsPort} not ready after 30s, proceeding anyway`);
-          ctx.log?.info(`[${account.accountId}] Check NapCat logs: ~/.openclaw/logs/napcat.{stdout,stderr}.log`);
+          ctx.log?.warn(`[${account.accountId}] WebSocket port ${wsPort} not ready after 30s`);
+          ctx.log?.info(`[${account.accountId}] Check logs: ~/.openclaw/logs/napcat.*.log`);
         }
       } else {
         ctx.log?.info(`[${account.accountId}] NapCat already running (PID: ${napcatStatus.pid})`);
       }
-      
-      // Probe HTTP API to check login status
-      ctx.log?.info(`[${account.accountId}] Probing NapCat HTTP API...`);
+
+      // Check login status
+      ctx.log?.info(`[${account.accountId}] Checking NapCat login status...`);
       const probe = await probeQQ(account, 5000);
       let botLabel = "";
       if (probe.ok) {
@@ -373,9 +375,11 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
         ctx.log?.info(`[${account.accountId}] NapCat login status: ${probe.status}`);
       } else {
         ctx.log?.warn(`[${account.accountId}] NapCat probe failed: ${probe.error}`);
+        ctx.log?.info(`[${account.accountId}] QQ may need re-login via WebUI`);
       }
-      ctx.log?.info(`[${account.accountId}] QQ provider starting WebSocket connection${botLabel}`);
-      
+
+      ctx.log?.info(`[${account.accountId}] QQ provider starting WebSocket${botLabel}`);
+
       return monitorQQProvider({
         account,
         config: ctx.cfg,
@@ -384,7 +388,7 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
         onEvent: async (event) => {
           if (event.post_type === "message") {
             const msgEvent = event as QQMessageEvent;
-            ctx.log?.info(`[${account.accountId}] Received message from ${msgEvent.sender.nickname}`);
+            ctx.log?.info(`[${account.accountId}] Message from ${msgEvent.sender.nickname}`);
           }
         },
         onMessage: async (event) => {
@@ -395,12 +399,12 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
             account,
             accountId: account.accountId,
           });
-          
+
           if (!messageContext) {
             ctx.log?.info(`[${account.accountId}] Failed to build message context`);
             return;
           }
-          
+
           await dispatchQQMessage({
             context: messageContext,
             cfg: ctx.cfg,
@@ -416,7 +420,19 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
     },
     stopAccount: async (ctx) => {
       ctx.log?.info(`[${ctx.accountId}] stopping QQ provider`);
-      await stopNapCatQQ(ctx.runtime);
+
+      // Stop WebSocket connection first (handled by abortSignal)
+      ctx.log?.info(`[${ctx.accountId}] Stopping WebSocket connection...`);
+
+      // Stop NapCat (lifecycle management - stop with gateway)
+      ctx.log?.info(`[${ctx.accountId}] Stopping NapCat...`);
+      const stopResult = await stopNapCatQQ();
+      if (stopResult.ok) {
+        ctx.log?.info(`[${ctx.accountId}] NapCat stopped`);
+      } else {
+        ctx.log?.warn(`[${ctx.accountId}] Failed to stop NapCat: ${stopResult.error}`);
+      }
+
       ctx.log?.info(`[${ctx.accountId}] QQ provider stopped`);
     },
     loginWithQrStart: async (params) => {
@@ -432,15 +448,17 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
 
       // Try to get quick login list
       const quickLoginResult = await getNapCatQuickLoginList(webuiPort, webuiToken);
-      
+
       if (quickLoginResult.success && quickLoginResult.list && quickLoginResult.list.length > 0) {
         // Find the first account that supports quick login
-        const quickLoginAccount = quickLoginResult.list.find((item: QuickLoginItem) => item.isQuickLogin);
-        
+        const quickLoginAccount = quickLoginResult.list.find(
+          (item: QuickLoginItem) => item.isQuickLogin,
+        );
+
         if (quickLoginAccount) {
           // Attempt quick login
           const loginResult = await setNapCatQuickLogin(quickLoginAccount.uin, webuiPort, webuiToken);
-          
+
           if (loginResult.success) {
             return {
               message: `Quick login initiated for QQ ${quickLoginAccount.uin} (${quickLoginAccount.nickName}). Waiting for login to complete...`,
@@ -468,7 +486,7 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
 
       // Poll for login status via OneBot API
       const maxAttempts = params.timeoutMs ? Math.ceil(params.timeoutMs / 3000) : 60;
-      
+
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const probe = await probeQQ(
           resolveQQAccount({
@@ -498,7 +516,7 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
       const nextQQ = cfg.channels?.qq ? { ...cfg.channels.qq } : undefined;
       let cleared = false;
       let changed = false;
-      
+
       if (nextQQ) {
         if (accountId === DEFAULT_ACCOUNT_ID) {
           if (nextQQ.accessToken) {
@@ -515,7 +533,7 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
             changed = true;
           }
         }
-        
+
         const accounts =
           nextQQ.accounts && typeof nextQQ.accounts === "object"
             ? { ...nextQQ.accounts }
@@ -545,7 +563,7 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
             }
           }
         }
-        
+
         if (accounts) {
           if (Object.keys(accounts).length === 0) {
             delete nextQQ.accounts;
@@ -555,7 +573,7 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
           }
         }
       }
-      
+
       if (changed) {
         if (nextQQ && Object.keys(nextQQ).length > 0) {
           nextCfg.channels = { ...nextCfg.channels, qq: nextQQ };
@@ -569,17 +587,17 @@ export const qqPlugin: ChannelPlugin<ResolvedQQAccount> = {
           }
         }
       }
-      
+
       const resolved = resolveQQAccount({
         cfg: changed ? nextCfg : cfg,
         accountId,
       });
       const loggedOut = !resolved.httpUrl;
-      
+
       if (changed) {
         await getQQRuntime().config.writeConfigFile(nextCfg);
       }
-      
+
       return { cleared, envToken: false, loggedOut };
     },
   },

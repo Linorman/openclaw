@@ -5,17 +5,15 @@ import type { DmPolicy } from "../../../config/types.js";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "../../../routing/session-key.js";
 import {
   checkNapCatLoginViaOneBot,
-  checkNapCatWebUI,
   detectNapCatQQ,
-  getCapturedNapCatQRCode,
-  getNapCatQRCode,
-  getNapCatStatus,
   installNapCatQQ,
   killExistingNapCat,
   readNapCatConfig,
   startNapCatQQ,
+  updateNapCatConfig,
   waitForNapCatLogin,
-} from "../../../commands/napcat-install.js";
+  type NapCatStartResult,
+} from "../../../qq/napcat-lifecycle.js";
 import {
   listQQAccountIds,
   resolveDefaultQQAccountId,
@@ -60,6 +58,44 @@ async function detectQQLinked(
   }
 
   return { linked: false, error: result.error };
+}
+
+/**
+ * Display QR code in terminal
+ */
+async function displayQRCodeInTerminal(qrCode: string, prompter: WizardPrompter): Promise<void> {
+  console.log("\n");
+  console.log("╔══════════════════════════════════════════════════════════╗");
+  console.log("║          Scan this QR code with QQ mobile app            ║");
+  console.log("╚══════════════════════════════════════════════════════════╝");
+  console.log("\n");
+
+  // Try to display QR code using qrcode-terminal
+  try {
+    const qrcode = await import("qrcode-terminal");
+    qrcode.default.generate(qrCode, { small: true });
+    console.log("\n");
+  } catch {
+    // Fallback: show URL
+    console.log("QR Code URL:");
+    console.log(qrCode);
+    console.log("\n");
+  }
+
+  await prompter.note(
+    [
+      "Please scan the QR code above with your QQ mobile app.",
+      "",
+      "Steps:",
+      "1) Open QQ on your phone",
+      "2) Tap the '+' icon and select 'Scan'",
+      "3) Scan the QR code displayed above",
+      "4) Confirm login on your phone",
+      "",
+      `Need help? ${formatDocsLink("/qq")}`,
+    ].join("\n"),
+    "QQ Login",
+  );
 }
 
 async function promptQQAllowFrom(params: {
@@ -178,7 +214,7 @@ const dmPolicy: ChannelOnboardingDmPolicy = {
 export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
   channel,
   getStatus: async ({ cfg }) => {
-    // Check if httpUrl is explicitly configured (not the default from resolveQQAccount)
+    // Check if httpUrl is explicitly configured
     const qqConfig = cfg.channels?.qq;
     const hasExplicitHttpUrl = Boolean(qqConfig?.httpUrl?.trim());
     const hasAccountWithHttpUrl = Object.values(qqConfig?.accounts || {}).some((account) =>
@@ -190,14 +226,8 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
     let linked = false;
     if (hasConfig) {
       const napCatConfig = await readNapCatConfig();
-      console.log(
-        `[getStatus] NapCat config: httpPort=${napCatConfig?.httpPort}, httpToken=${napCatConfig?.httpToken ? "(set)" : "(none)"}`,
-      );
       if (napCatConfig?.httpPort) {
         const result = await detectQQLinked(napCatConfig.httpPort, napCatConfig.httpToken);
-        console.log(
-          `[getStatus] detectQQLinked result: linked=${result.linked}, error=${result.error || "none"}`,
-        );
         linked = result.linked;
       }
     }
@@ -269,7 +299,7 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
     }
 
     // Step 1: Check NapCat installation
-    let installPath = await detectNapCatQQ(runtime);
+    let installPath = await detectNapCatQQ();
 
     if (!installPath && os.platform() === "linux") {
       // Auto-install NapCat on Linux
@@ -305,9 +335,8 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
               "",
               `Location: ${installResult.installPath}`,
               `Config: ${installResult.configPath}`,
-              `HTTP Token: ${installResult.httpToken ? "(configured)" : "(none)"}`,
-              "HTTP API: http://localhost:3000",
-              "WebSocket: ws://localhost:3001",
+              `HTTP API: http://localhost:${installResult.httpPort}`,
+              `WebSocket: ws://localhost:${installResult.wsPort}`,
             ].join("\n"),
             "Installation Complete",
           );
@@ -355,15 +384,15 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
       return { cfg: next, accountId: qqAccountId };
     }
 
-    // Step 2: Kill any existing NapCat processes and start fresh
-    let webuiToken: string | undefined;
-    let webuiPort = 6099;
-
-    await prompter.note("Stopping any existing NapCat processes...", "QQ Setup");
+    // Step 2: Stop any existing NapCat and start fresh
+    await prompter.note("Preparing NapCatQQ...", "QQ Setup");
     await killExistingNapCat();
 
     await prompter.note("Starting NapCatQQ...", "QQ Setup");
-    const startResult = await startNapCatQQ(runtime, { killExisting: false });
+    const startResult: NapCatStartResult = await startNapCatQQ(runtime, {
+      killExisting: false,
+      waitForQrCode: true,
+    });
 
     if (!startResult.ok) {
       await prompter.note(
@@ -374,56 +403,31 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
       return { cfg: next, accountId: qqAccountId };
     }
 
-    webuiToken = startResult.webuiToken;
-    webuiPort = startResult.webuiPort ?? 6099;
-
-    // Show port information if they were changed
+    // Show startup info
     const portInfo = [];
     if (startResult.httpPort) portInfo.push(`HTTP: ${startResult.httpPort}`);
     if (startResult.wsPort) portInfo.push(`WS: ${startResult.wsPort}`);
 
     await prompter.note(
-      `✓ NapCatQQ started (PID: ${startResult.pid})${portInfo.length > 0 ? `\nPorts: ${portInfo.join(", ")}` : ""}`,
+      `✓ NapCatQQ started${portInfo.length > 0 ? `\nPorts: ${portInfo.join(", ")}` : ""}`,
       "QQ Setup",
     );
 
-    // Step 3: Wait for NapCat to be fully ready
-    await prompter.note("Waiting for NapCatQQ to initialize...", "QQ Setup");
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-
-    // Check if WebUI is accessible
-    let webuiCheck = await checkNapCatWebUI(webuiPort, webuiToken);
-    let webuiAttempts = 0;
-    while (!webuiCheck.accessible && webuiAttempts < 5) {
-      webuiAttempts++;
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      webuiCheck = await checkNapCatWebUI(webuiPort, webuiToken);
-    }
-
-    // Read NapCat config (will use account-specific if available)
+    // Step 3: Ensure HTTP token is configured
     let napCatConfig = await readNapCatConfig();
 
-    // If no HTTP token is configured, generate one and update all configs
-    console.log(
-      `[configure] NapCat config before: httpToken=${napCatConfig?.httpToken ? "(set)" : "(none)"}`,
-    );
     if (!napCatConfig?.httpToken) {
-      const { updateNapCatConfig } = await import("../../../commands/napcat-install.js");
-      const newToken =
-        Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      console.log(`[configure] Generating new HTTP token: ${newToken.substring(0, 8)}...`);
+      const newToken = generateSecureToken();
+      runtime.log(`[QQ Onboarding] Generating new HTTP token`);
 
-      // Update default config
-      await updateNapCatConfig({ accessToken: newToken });
+      await updateNapCatConfig({
+        httpPort: startResult.httpPort ?? 3000,
+        wsPort: startResult.wsPort ?? 3001,
+        accessToken: newToken,
+      });
 
-      // Also try to update account-specific configs if we can detect QQ numbers
-      // For now, we update after detecting login
-
-      // Re-read config to get updated token
+      // Re-read config
       napCatConfig = await readNapCatConfig();
-      console.log(
-        `[configure] NapCat config after: httpToken=${napCatConfig?.httpToken ? "(set)" : "(none)"}`,
-      );
     }
 
     const httpUrl = napCatConfig?.httpPort
@@ -434,7 +438,7 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
       : "ws://localhost:3001";
     const httpToken = napCatConfig?.httpToken;
 
-    // Update config with endpoints and token
+    // Update config with endpoints
     const accountConfig: Record<string, unknown> = {
       enabled: true,
       httpUrl,
@@ -472,11 +476,8 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
       };
     }
 
-    // Step 4: Check if already logged in (via OneBot HTTP API)
+    // Step 4: Check if already logged in
     const httpPort = napCatConfig?.httpPort ?? 3000;
-    console.log(
-      `[configure] Checking login with port=${httpPort}, token=${httpToken ? httpToken.substring(0, 8) + "..." : "(none)"}`,
-    );
     const loginCheck = await detectQQLinked(httpPort, httpToken);
 
     if (loginCheck.linked) {
@@ -490,8 +491,8 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
         "QQ Linked",
       );
 
+      // Update config with QQ number
       if (loginCheck.qqNumber && httpToken) {
-        const { updateNapCatConfig } = await import("../../../commands/napcat-install.js");
         await updateNapCatConfig({
           qqNumber: loginCheck.qqNumber,
           httpPort,
@@ -500,97 +501,33 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
         });
       }
     } else {
-      // Guide user through WebUI login
-      const webuiUrl = `http://localhost:${webuiPort}/webui`;
-
-      // Try to get QR code (first from logs, then from WebUI API)
-      await prompter.note(["Fetching QR code for QQ login..."].join("\n"), "QQ Login");
-
-      let qrDisplayed = false;
-      let qrCode: string | undefined;
-
-      // Poll for QR code (it may take some time to generate)
-      // Try for up to 30 seconds
-      for (let attempt = 0; attempt < 30; attempt++) {
-        // First, check if we captured QR code from logs
-        const capturedQR = getCapturedNapCatQRCode();
-        if (capturedQR) {
-          qrCode = capturedQR;
-          runtime?.log(`[QQ Onboarding] QR code captured from logs`);
-          break;
-        }
-
-        // Fallback to WebUI API
-        const qrResult = await getNapCatQRCode(webuiPort, webuiToken);
-        if (qrResult.success && qrResult.qrCode) {
-          qrCode = qrResult.qrCode;
-          runtime?.log(`[QQ Onboarding] QR code fetched from WebUI API`);
-          break;
-        }
-
-        // Wait 1 second before next attempt
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Need to login - display QR code
+      if (startResult.qrCode) {
+        await displayQRCodeInTerminal(startResult.qrCode, prompter);
+      } else {
+        await prompter.note(
+          [
+            "QR code not yet available.",
+            "",
+            "Please use NapCat WebUI to login:",
+            `http://localhost:${startResult.webuiPort ?? 6099}/webui`,
+            startResult.webuiToken ? `Token: ${startResult.webuiToken}` : "",
+          ].join("\n"),
+          "QQ Login Required",
+        );
       }
 
-      if (qrCode) {
-        // Display QR code in terminal
-        console.log("\n");
-        console.log("╔══════════════════════════════════════════════════════════╗");
-        console.log("║          Scan this QR code with QQ mobile app            ║");
-        console.log("╚══════════════════════════════════════════════════════════╝");
-        console.log("\n");
-
-        // Import qrcode-terminal dynamically
-        try {
-          const qrcode = await import("qrcode-terminal");
-          qrcode.default.generate(qrCode, { small: true });
-          console.log("\n");
-          qrDisplayed = true;
-        } catch {
-          // qrcode-terminal not available, show URL instead
-          console.log("QR Code URL:");
-          console.log(qrCode);
-          console.log("\n");
-          qrDisplayed = true;
-        }
-      }
-
-      await prompter.note(
-        [
-          qrDisplayed ? "QR code displayed above." : "Please use WebUI to get QR code.",
-          "",
-          `WebUI URL: ${webuiUrl}`,
-          webuiToken ? `Token: ${webuiToken}` : "",
-          "",
-          "Steps:",
-          "1) Open the WebUI URL in your browser (if QR not shown above)",
-          "2) Click 'QRCode' button",
-          "3) Scan the QR code with QQ mobile app",
-          "4) Confirm login on your phone",
-          "5) Wait for this process to detect the login",
-        ].join("\n"),
-        "QQ Login Required",
-      );
-
-      // Wait for user to complete login with polling
-      await prompter.note(
-        "Waiting for QQ login (this may take 1-2 minutes)...",
-        "Waiting for Login",
-      );
+      // Wait for user to complete login
+      await prompter.note("Waiting for QQ login...", "Waiting for Login");
 
       let loggedIn = false;
       let lastError = "";
 
-      // Poll for login status via OneBot HTTP API
-      console.log(
-        `[configure] Starting login poll with httpToken=${httpToken ? httpToken.substring(0, 8) + "..." : "(none)"}`,
-      );
       const pollResult = await waitForNapCatLogin(
         httpPort,
         httpToken,
         60, // 60 attempts * 3 seconds = 3 minutes max
         (attempt, result) => {
-          // Update every 10 attempts
           if (attempt % 10 === 0 && runtime) {
             runtime.log(`Login check ${attempt}/60... ${result.error || "waiting"}`);
           }
@@ -612,19 +549,17 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
           "Login Success",
         );
 
-        // Update account-specific NapCat config with the logged-in QQ number
+        // Update account-specific NapCat config
         if (pollResult.userId && httpToken) {
-          const { updateNapCatConfig } = await import("../../../commands/napcat-install.js");
           await updateNapCatConfig({
             qqNumber: pollResult.userId,
             httpPort,
             wsPort: napCatConfig?.wsPort ?? 3001,
             accessToken: httpToken,
           });
-          console.log(`[configure] Updated NapCat config for QQ ${pollResult.userId}`);
         }
       } else {
-        // Timed out, ask user to confirm
+        // Timed out
         await prompter.note(
           [
             "Automatic login detection timed out.",
@@ -632,19 +567,18 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
             "This can happen if:",
             "- QQ login is still processing",
             "- NapCat WebUI is not responding",
-            "",
-            lastError ? `Last error: ${lastError}` : "",
+            lastError ? `\nLast error: ${lastError}` : "",
           ].join("\n"),
           "Login Check",
         );
 
         const manualConfirm = await prompter.confirm({
-          message: "Have you completed QQ login in WebUI?",
+          message: "Have you completed QQ login?",
           initialValue: false,
         });
 
         if (manualConfirm) {
-          // Try a few more times using OneBot API
+          // Try a few more times
           for (let i = 0; i < 5; i++) {
             const verifyResult = await detectQQLinked(httpPort, httpToken);
             if (verifyResult.linked) {
@@ -660,7 +594,6 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
               );
 
               if (verifyResult.qqNumber && httpToken) {
-                const { updateNapCatConfig } = await import("../../../commands/napcat-install.js");
                 await updateNapCatConfig({
                   qqNumber: verifyResult.qqNumber,
                   httpPort,
@@ -680,9 +613,8 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
                 "✗ QQ login not detected.",
                 "",
                 "Please make sure:",
-                "1) You scanned the QR code in WebUI",
+                "1) You scanned the QR code",
                 "2) You confirmed login on your phone",
-                "3) WebUI shows QQ as 'online'",
               ].join("\n"),
               "Not Linked",
             );
@@ -695,31 +627,31 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
           [
             "QQ login was not completed.",
             "",
-            "You can complete login later:",
-            `1) Open ${webuiUrl}`,
-            "2) Click QRCode and scan with QQ mobile app",
-            `3) Run ${formatCliCommand("openclaw onboard")} again to verify`,
+            "You can complete login later by visiting:",
+            `http://localhost:${startResult.webuiPort ?? 6099}/webui`,
             "",
             "Configuration has been saved.",
           ].join("\n"),
           "Incomplete Setup",
         );
-        await killExistingNapCat();
+        // Keep NapCat running for user to complete login
         return { cfg: next, accountId: qqAccountId };
       }
     }
 
     // Step 5: Configure allowFrom
-    const shouldConfigureAllowFrom = await prompter.confirm({
-      message: "Configure QQ owner allowlist now?",
-      initialValue: true,
-    });
-    if (shouldConfigureAllowFrom) {
-      next = await promptQQAllowFrom({
-        cfg: next,
-        prompter,
-        accountId: qqAccountId,
+    if (!forceAllowFrom) {
+      const shouldConfigureAllowFrom = await prompter.confirm({
+        message: "Configure QQ owner allowlist now?",
+        initialValue: true,
       });
+      if (shouldConfigureAllowFrom) {
+        next = await promptQQAllowFrom({
+          cfg: next,
+          prompter,
+          accountId: qqAccountId,
+        });
+      }
     }
 
     await prompter.note(
@@ -744,3 +676,15 @@ export const qqOnboardingAdapter: ChannelOnboardingAdapter = {
     },
   }),
 };
+
+/**
+ * Generate a secure random token
+ */
+function generateSecureToken(): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let token = "";
+  for (let i = 0; i < 32; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
+}
